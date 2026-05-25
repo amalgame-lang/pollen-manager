@@ -1,0 +1,53 @@
+
+[package]
+name = "pollen-manager"
+version = "0.1.0-dev"
+license = "Apache-2.0"
+description = "Pollen Manager — Mosaic web app: WYSIWYG workflow.json designer + live executions/ dashboard for Pollen P2P message bus."
+entry = "server.am"
+
+[dependencies]
+amalgame-web = ">=0.13.0"
+amalgame-net-http = ">=0.9.6"
+amalgame-tls = ">=0.3.1"
+amalgame-crypto = ">=0.3.0"
+
+[dependencies.crypto]
+git = "github.com/amalgame-lang/amalgame-crypto"
+tag = "v0.3.0"
+
+[dependencies.tls]
+git = "github.com/amalgame-lang/amalgame-tls"
+tag = "v0.3.1"
+
+[dependencies.async]
+git = "github.com/amalgame-lang/amalgame-async"
+tag = "v0.2.3"
+
+[dependencies.http]
+git = "github.com/amalgame-lang/amalgame-net-http"
+tag = "v0.9.6"
+
+[dependencies.datetime]
+git = "github.com/amalgame-lang/amalgame-datetime"
+tag = "v0.1.0"
+
+[dependencies.random]
+git = "github.com/amalgame-lang/amalgame-random"
+tag = "v0.1.0"
+
+[dependencies.logging]
+git = "github.com/amalgame-lang/amalgame-logging"
+tag = "v0.1.0"
+
+[dependencies.redis]
+git = "github.com/amalgame-lang/amalgame-database-nosql-redis"
+tag = "v0.2.0"
+
+[dependencies.threading]
+git = "github.com/amalgame-lang/amalgame-threading"
+tag = "v0.1.0"
+
+[dependencies.web]
+git = "github.com/amalgame-lang/amalgame-web"
+tag = "v0.13.3"

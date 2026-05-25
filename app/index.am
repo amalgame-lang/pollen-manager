@@ -1,0 +1,38 @@
+// app/index.am  →  GET /
+//
+// Pollen Manager — landing page hosting the workflow editor.
+// Phase 4.0 ships a read-only SVG render of the current DAG +
+// a JSON textarea editor that PUTs to /api/workflow. Phase 4.1
+// will turn the SVG render into a drag-and-drop WYSIWYG.
+
+import Amalgame.Web
+
+public class Page {
+    public static HttpResponse GET(ctx: WebContext) {
+        let html: string = "<!doctype html><html><head>" +
+            "<meta charset=\"utf-8\">" +
+            "<title>Pollen Manager</title>" +
+            "<link rel=\"stylesheet\" href=\"/style.css\">" +
+            "</head><body>" +
+            "<header><h1>Pollen Manager</h1>" +
+            "<p class=\"subtitle\">workflow.json designer · v0.1.0-dev</p>" +
+            "</header>" +
+            "<main>" +
+            "<section id=\"graph\">" +
+            "<h2>DAG</h2>" +
+            "<svg id=\"dag\" viewBox=\"0 0 800 360\"></svg>" +
+            "</section>" +
+            "<section id=\"editor\">" +
+            "<h2>workflow.json</h2>" +
+            "<textarea id=\"src\" spellcheck=\"false\"></textarea>" +
+            "<div class=\"actions\">" +
+            "<button id=\"save\">Copy</button>" +
+            "<span id=\"status\"></span>" +
+            "</div>" +
+            "</section>" +
+            "</main>" +
+            "<script src=\"/manager.js\"></script>" +
+            "</body></html>"
+        return HttpResponse.New().Html(html)
+    }
+}

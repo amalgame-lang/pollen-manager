@@ -1,0 +1,12 @@
+// app/api/info.am  →  GET /api/info  (JSON)
+
+import Amalgame.Web
+
+public class Page {
+    public static HttpResponse GET(ctx: WebContext) {
+        let body: string = "{\"app\":\"pollen-manager\",\"version\":\"0.1.0\"}"
+        return HttpResponse.New()
+            .Header("content-type", "application/json")
+            .Text(body)
+    }
+}

@@ -1,0 +1,123 @@
+:root {
+  --fg: #1a1a1a;
+  --fg-muted: #555;
+  --bg: #fafafa;
+  --panel: #fff;
+  --border: #d8d8d8;
+  --accent: #f5b400;     /* pollen yellow */
+  --accent-dark: #cc8c00;
+  --node: #ffe680;
+  --edge: #888;
+  --error: #c53030;
+  --ok: #2f855a;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  font-family: system-ui, -apple-system, sans-serif;
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  line-height: 1.5;
+}
+
+header {
+  padding: 1.25rem 2rem;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+header h1 { margin: 0; font-size: 1.5rem; }
+header .subtitle { margin: 0.25rem 0 0; color: var(--fg-muted); font-size: 0.85rem; }
+
+main {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  padding: 1rem 2rem;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+section {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1rem;
+}
+
+section h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--fg-muted);
+}
+
+#dag {
+  width: 100%;
+  height: 360px;
+  background: #fff;
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+}
+
+#dag .node-rect {
+  fill: var(--node);
+  stroke: var(--accent-dark);
+  stroke-width: 2;
+}
+#dag .node-label {
+  font-family: system-ui;
+  font-size: 13px;
+  font-weight: 600;
+  fill: var(--fg);
+  text-anchor: middle;
+  pointer-events: none;
+}
+#dag .node-meta {
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  fill: var(--fg-muted);
+  text-anchor: middle;
+  pointer-events: none;
+}
+#dag .edge {
+  stroke: var(--edge);
+  stroke-width: 2;
+  fill: none;
+  marker-end: url(#arrow);
+}
+
+textarea {
+  width: 100%;
+  height: 320px;
+  font-family: ui-monospace, monospace;
+  font-size: 13px;
+  padding: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  resize: vertical;
+}
+
+.actions {
+  margin-top: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+button {
+  background: var(--accent);
+  color: var(--fg);
+  border: none;
+  padding: 0.5rem 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: 4px;
+}
+button:hover { background: var(--accent-dark); color: #fff; }
+
+#status { font-size: 0.85rem; }
+#status.ok    { color: var(--ok); }
+#status.error { color: var(--error); }
