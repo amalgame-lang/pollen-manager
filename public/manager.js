@@ -247,6 +247,13 @@
 
     refreshRaw();
     syncInspector();
+    // If the inject panel is open, repopulate the target/topic
+    // selects with whatever nodes exist now (might have been
+    // renamed / added / deleted while editing).
+    if (typeof refreshInjectTargets === 'function'
+        && $injectPanel && !$injectPanel.hidden) {
+      refreshInjectTargets();
+    }
   }
 
   function refreshRaw() {
@@ -941,6 +948,13 @@
     syncBpSummary();
     const e = nodeIndex.get(name);
     if (e && e.g) e.g.classList.toggle('has-bp', breakpoints.has(name));
+    // Refresh the inject hint if the panel is open. The function
+    // is defined later in this IIFE but hoisted (function decl)
+    // so we can call it from here.
+    if (typeof refreshInjectHint === 'function'
+        && $injectPanel && !$injectPanel.hidden) {
+      refreshInjectHint();
+    }
   }
 
   function saveBreakpoints() {
@@ -984,10 +998,119 @@
     saveBreakpoints();
     syncBpSummary();
     setStatus('breakpoints cleared', 'ok');
+    if ($injectPanel && !$injectPanel.hidden) refreshInjectHint();
   });
 
   // Initial sync (in case breakpoints came from localStorage).
   syncBpSummary();
+
+  // ── Inject debug message (Phase 4.5.5) ─────────────────────
+  const $injectPanel    = document.getElementById('inject-panel');
+  const $injectTarget   = document.getElementById('inject-target');
+  const $injectTopic    = document.getElementById('inject-topic');
+  const $injectData     = document.getElementById('inject-data');
+  const $injectHint     = document.getElementById('inject-mode-hint');
+  const $injectSend     = document.getElementById('inject-send');
+
+  function refreshInjectTargets() {
+    // Populate target select from wf.nodes that have consumes.
+    // (A producer with no consumes can't ACK an incoming message,
+    // so it's not a meaningful target. xformer/sink/audit/alerts
+    // are the typical candidates.)
+    const prev = $injectTarget.value;
+    $injectTarget.innerHTML = '';
+    if (!wf || !wf.nodes) return;
+    for (const [name, n] of Object.entries(wf.nodes)) {
+      if (!Array.isArray(n.consumes) || n.consumes.length === 0) continue;
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = `${name}  (${n.host || '?'}:${n.port || '?'})`;
+      $injectTarget.appendChild(opt);
+    }
+    if (prev && [...$injectTarget.options].some(o => o.value === prev)) {
+      $injectTarget.value = prev;
+    }
+    refreshInjectTopics();
+  }
+
+  function refreshInjectTopics() {
+    const target = $injectTarget.value;
+    const node = wf && wf.nodes && wf.nodes[target];
+    $injectTopic.innerHTML = '';
+    if (!node || !Array.isArray(node.consumes)) return;
+    for (const t of node.consumes) {
+      const opt = document.createElement('option');
+      opt.value = t;
+      opt.textContent = t;
+      $injectTopic.appendChild(opt);
+    }
+  }
+
+  function refreshInjectHint() {
+    const n = breakpoints.size;
+    if (n === 0) {
+      $injectHint.textContent = 'No breakpoints set → mode=step (pause at every hop).';
+      $injectHint.dataset.kind = 'step';
+    } else {
+      $injectHint.textContent = `${n} breakpoint(s) → mode=breakpoint (pause only at: ${bpCsv()}).`;
+      $injectHint.dataset.kind = 'bp';
+    }
+  }
+
+  $injectTarget.addEventListener('change', refreshInjectTopics);
+
+  $injectSend.addEventListener('click', async () => {
+    const target = $injectTarget.value;
+    const topic = $injectTopic.value;
+    const node = wf && wf.nodes && wf.nodes[target];
+    if (!node) { setStatus('inject: no target selected', 'error'); return; }
+    if (!topic) { setStatus('inject: no topic selected', 'error'); return; }
+    let data;
+    try { data = JSON.parse($injectData.value); }
+    catch (e) { setStatus('inject: data is not JSON: ' + e.message, 'error'); return; }
+    setStatus('injecting…');
+    try {
+      const r = await fetch('/api/inject', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          host: node.host || '127.0.0.1',
+          port: node.port || 7902,
+          topic,
+          version: 1,
+          data,
+          breakpoints: [...breakpoints],
+        }),
+      });
+      const reply = await r.json();
+      if (!r.ok) {
+        setStatus(`inject failed: ${reply.error || r.status}`, 'error');
+        return;
+      }
+      setStatus(`injected → ${target} · mode=${reply.mode} · mid ${reply.messageId.slice(0,8)}`, 'ok');
+    } catch (e) {
+      setStatus('inject error: ' + e.message, 'error');
+    }
+  });
+
+  // The inject panel mirrors the debug-toggle state.
+  function syncInjectPanel() {
+    if ($dbgToggle.checked) {
+      $injectPanel.hidden = false;
+      refreshInjectTargets();
+      refreshInjectHint();
+    } else {
+      $injectPanel.hidden = true;
+    }
+  }
+  $dbgToggle.addEventListener('change', syncInjectPanel);
+
+  // Whenever the workflow gets reloaded or saved, the target /
+  // topic lists need to refresh too. Hook into pollLive's
+  // refresh + the load/save paths via a small observer.
+  // (Simplest : refresh on every change of wf.nodes from
+  // outside ; toggleBreakpoint and bpClear call refreshInjectHint
+  // directly inline since they're already in this scope.)
 
   // Polling is driven entirely by the Edit/Watch mode toggle —
   // started in setMode('watch'), stopped in setMode('edit').

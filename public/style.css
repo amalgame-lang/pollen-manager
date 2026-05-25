@@ -661,6 +661,58 @@ body[data-mode="watch"] #dag .node-badge.on { opacity: 1; }
   fill: var(--bg-3);
 }
 
+/* ── Inject panel (Phase 4.5.5) ───────────────────────────── */
+#inject-panel[hidden] { display: none; }
+#inject-panel {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line-low);
+}
+#inject-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+#inject-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--fg-dim);
+}
+#inject-form select, #inject-form textarea {
+  font: 12px var(--font-mono);
+  padding: 6px 8px;
+  background: var(--bg-0);
+  border: 1px solid var(--line-mid);
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+  outline: none;
+}
+#inject-form select:focus,
+#inject-form textarea:focus {
+  border-color: var(--accent);
+  background: var(--bg-2);
+}
+#inject-form textarea {
+  resize: vertical;
+  min-height: 56px;
+}
+#inject-mode-hint {
+  font: 11px var(--font-mono);
+  color: var(--fg-dim);
+  margin-top: 2px;
+}
+#inject-mode-hint[data-kind="bp"] { color: var(--error); }
+#inject-mode-hint[data-kind="step"] { color: var(--accent); }
+#inject-send {
+  align-self: flex-start;
+  margin-top: 4px;
+}
+
 /* ── Scrollbar polish (WebKit) ────────────────────────────── */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }

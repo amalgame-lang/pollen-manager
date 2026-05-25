@@ -8,6 +8,26 @@ import Amalgame.Net.Http
 import Amalgame.Threading
 import Amalgame.DateTime
 
+@c {
+    #include <sys/random.h>
+    static code_string _gen_uuid_v4_c(void) {
+        char* buf = (char*) GC_MALLOC_ATOMIC(37);
+        unsigned char b[16];
+        getrandom(b, 16, 0);
+        b[6] = (unsigned char)((b[6] & 0x0F) | 0x40);
+        b[8] = (unsigned char)((b[8] & 0x3F) | 0x80);
+        const char* hex = "0123456789abcdef";
+        int p = 0;
+        for (int k = 0; k < 16; k++) {
+            if (k == 4 || k == 6 || k == 8 || k == 10) buf[p++] = '-';
+            buf[p++] = hex[(b[k] >> 4) & 0xF];
+            buf[p++] = hex[b[k] & 0xF];
+        }
+        buf[p] = 0;
+        return (code_string) buf;
+    }
+}
+
 public class Program {
     public static int Main(string[] args) {
         let app: WebApp = WebApp.New()
@@ -63,6 +83,15 @@ public class Program {
         Console.Flush()
 
         return app.Serve(3000)
+    }
+
+    // Generate an RFC 4122 v4 UUID via getrandom + bit-fix.
+    // Shared helper for the inject endpoint (Phase 4.5.5) and
+    // any other code that needs a fresh session/message id.
+    public static string GenUuid() {
+        var u: string = ""
+        @c { u = _gen_uuid_v4_c(); }
+        return u
     }
 
     // Scan <SHARED_DIR>/executions/, parse each record's timestamp,

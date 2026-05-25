@@ -85,6 +85,21 @@ public class Page {
             "<summary>Raw JSON</summary>" +
             "<textarea id=\"src\" spellcheck=\"false\" readonly></textarea>" +
             "</details>" +
+            // ── Inject debug message (Phase 4.5.5) ──
+            // Visible only when ⏸ Debug is on. Manager builds the
+            // envelope + sends it via TCP to the target node, no
+            // CLI required. Auto-mode : breakpoints set → mode=
+            // breakpoint, none set → mode=step.
+            "<section id=\"inject-panel\" hidden>" +
+            "<div class=\"section-head\"><h2>Inject debug msg</h2></div>" +
+            "<form id=\"inject-form\">" +
+            "<label>Target node <select id=\"inject-target\"></select></label>" +
+            "<label>Topic <select id=\"inject-topic\"></select></label>" +
+            "<label>Data (JSON) <textarea id=\"inject-data\" rows=\"3\" spellcheck=\"false\">{\"hello\":\"world\"}</textarea></label>" +
+            "<div class=\"hint\" id=\"inject-mode-hint\"></div>" +
+            "<button type=\"button\" id=\"inject-send\" class=\"primary\">▶ Send</button>" +
+            "</form>" +
+            "</section>" +
             "<div class=\"actions\">" +
             "<button id=\"save\">Save</button>" +
             "<button id=\"reload\">Reload</button>" +
