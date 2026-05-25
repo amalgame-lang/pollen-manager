@@ -204,10 +204,16 @@ namespace App
         return (code_string) buf;
     }
 
-    /* Look up (session, role), send reply, close fd, free slot. */
+    /* Look up (session, role), send reply, close fd, free slot.
+     * `extra_json` is a JSON fragment appended into the reply for
+     * commands that need extra data (notably DEBUG_MUTATE :
+     * data + then). Must start with a leading comma if non-empty,
+     * e.g. `,"data":{...},"then":"continue"`. Pass empty string
+     * for the simple Step/Continue/Cancel cases. */
     static int _dbg_send_cmd_c(code_string session,
                                  code_string role,
-                                 code_string cmd) {
+                                 code_string cmd,
+                                 code_string extra_json) {
         int found = 0;
         pthread_mutex_lock(&_dbg_pauses_mu);
         for (int i = 0; i < DBG_MAX_PAUSES; i++) {
@@ -215,16 +221,20 @@ namespace App
             if (strcmp(_dbg_pauses[i].session, session) != 0) continue;
             if (strcmp(_dbg_pauses[i].role, role) != 0) continue;
             dbg_pause_t* p = &_dbg_pauses[i];
-            char reply[128];
-            int n = snprintf(reply, sizeof(reply),
-                "{\"type\":\"%s\"}\n", cmd);
-            send(p->fd, reply, (size_t) n, MSG_NOSIGNAL);
+            /* Bigger buffer to fit MUTATE data payloads. */
+            char* reply = (char*) GC_MALLOC_ATOMIC(16384);
+            const char* extra = (extra_json && extra_json[0]) ? extra_json : "";
+            int n = snprintf(reply, 16384,
+                "{\"type\":\"%s\"%s}\n", cmd, extra);
+            if (n > 0 && n < 16384) {
+                send(p->fd, reply, (size_t) n, MSG_NOSIGNAL);
+            }
             close(p->fd);
             p->in_use = 0;
             p->fd = -1;
             found = 1;
-            fprintf(stdout, "debug-bridge: sent %s to session=%s role=%s\n",
-                cmd, session, role);
+            fprintf(stdout, "debug-bridge: sent %s to session=%s role=%s (%d bytes)\n",
+                cmd, session, role, n);
             fflush(stdout);
             break;
         }
@@ -246,7 +256,18 @@ public class DebugServer {
 
     public static bool SendCommand(string session, string role, string cmd) {
         var ok: int = 0
-        @c { ok = _dbg_send_cmd_c(session, role, cmd); }
+        let empty: string = ""
+        @c { ok = _dbg_send_cmd_c(session, role, cmd, empty); }
+        return ok != 0
+    }
+
+    // SendCommandWith — for MUTATE and any future cmd that needs
+    // extra fields. `extraJson` must start with a leading comma
+    // if non-empty (e.g. ",\"data\":{...},\"then\":\"continue\"").
+    public static bool SendCommandWith(string session, string role,
+                                        string cmd, string extraJson) {
+        var ok: int = 0
+        @c { ok = _dbg_send_cmd_c(session, role, cmd, extraJson); }
         return ok != 0
     }
 }

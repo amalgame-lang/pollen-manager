@@ -38,13 +38,24 @@ public class Page {
             // Hidden by default, shown when /api/debug/pauses
             // returns a non-empty list. Polished in 4.5.5.
             "<div id=\"debug-bar\" hidden>" +
+            "<div class=\"top\">" +
             "<span class=\"label\">⏸ Debug paused</span>" +
             "<span id=\"debug-bar-info\" class=\"info\"></span>" +
             "<div class=\"actions\">" +
+            "<button id=\"dbg-mutate-toggle\" title=\"Edit msg.data and replay\">✎ Edit</button>" +
             "<button id=\"dbg-step-over\" class=\"primary\" title=\"F10\">⇣ Step Over</button>" +
             "<button id=\"dbg-step-into\" title=\"F11\">⇩ Step Into</button>" +
             "<button id=\"dbg-continue\" title=\"F5\">▶ Continue</button>" +
             "<button id=\"dbg-cancel\" class=\"danger\" title=\"Esc\">✕ Cancel</button>" +
+            "</div>" +
+            "</div>" +
+            "<div id=\"dbg-mutate-panel\" hidden>" +
+            "<label>Edit msg.data — operator sees the current value, types a new one, picks an apply mode :</label>" +
+            "<textarea id=\"dbg-mutate-data\" spellcheck=\"false\" rows=\"4\"></textarea>" +
+            "<div class=\"actions\">" +
+            "<button id=\"dbg-mutate-apply-continue\" class=\"primary\">▶ Apply &amp; Continue</button>" +
+            "<button id=\"dbg-mutate-apply-step\">⇩ Apply &amp; Step</button>" +
+            "</div>" +
             "</div>" +
             "</div>" +
             "<main>" +

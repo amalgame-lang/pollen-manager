@@ -828,6 +828,11 @@
   const $dbgContinue  = document.getElementById('dbg-continue');
   const $dbgCancel    = document.getElementById('dbg-cancel');
   const $dbgToggle    = document.getElementById('debug-toggle');
+  const $dbgMutToggle = document.getElementById('dbg-mutate-toggle');
+  const $dbgMutPanel  = document.getElementById('dbg-mutate-panel');
+  const $dbgMutData   = document.getElementById('dbg-mutate-data');
+  const $dbgMutApplyContinue = document.getElementById('dbg-mutate-apply-continue');
+  const $dbgMutApplyStep     = document.getElementById('dbg-mutate-apply-step');
   const $bpSummary    = document.getElementById('bp-summary');
   const $bpList       = document.getElementById('bp-list');
   const $bpCopy       = document.getElementById('bp-copy');
@@ -835,6 +840,7 @@
   let dbgPollTimer = null;
   let dbgActive = null;  // { session, role } of the currently shown pause
   let dbgPausedRole = null;  // role with the .paused class on DAG, for cleanup
+  let lastPauseEnvelope = null;  // for MUTATE prefill (Phase 4.5.7)
   // Client-side breakpoints — set via right-click on a DAG node,
   // persisted in localStorage. Each bp can optionally carry a
   // condition (Phase 4.5.6) :
@@ -964,6 +970,8 @@
         if (dbgActive) {
           dbgActive = null;
           $dbgBar.hidden = true;
+          $dbgMutPanel.hidden = true;
+          lastPauseEnvelope = null;
           clearPausedHighlight();
         }
         return;
@@ -978,6 +986,13 @@
       const condTag = myBp && myBp.when ? ` · cond[${myBp.when}]` : '';
       $dbgInfo.textContent = `${p.role} · session ${p.session} · mid ${mid} · topic ${topicIn}${condTag}${more}`;
       $dbgBar.hidden = false;
+      // New pause → close any open mutate panel from a previous one,
+      // stash the envelope for the Edit button to prefill.
+      const isNewPause = !dbgActive
+        || dbgActive.session !== p.session
+        || dbgActive.role !== p.role;
+      if (isNewPause) $dbgMutPanel.hidden = true;
+      lastPauseEnvelope = env;
       dbgActive = { session: p.session, role: p.role };
       setPausedHighlight(p.role);
     } catch (e) { /* silent retry */ }
@@ -1012,6 +1027,52 @@
   $dbgStepInto.addEventListener('click', () => sendDebugCmd('DEBUG_STEP_INTO'));
   $dbgContinue.addEventListener('click', () => sendDebugCmd('DEBUG_CONTINUE'));
   $dbgCancel  .addEventListener('click', () => sendDebugCmd('DEBUG_CANCEL'));
+
+  // ── MUTATE (Phase 4.5.7) ──
+  // The "✎ Edit" button toggles a panel under the bar with the
+  // current msg.data prefilled into a textarea. Two apply
+  // buttons : "Apply & Continue" (mutate + run to next bp / end)
+  // and "Apply & Step" (mutate + pause at next hop).
+  $dbgMutToggle.addEventListener('click', () => {
+    const wasHidden = $dbgMutPanel.hidden;
+    $dbgMutPanel.hidden = !wasHidden;
+    if (wasHidden && dbgActive) {
+      // Prefill the textarea with the current envelope.data on open.
+      const cur = lastPauseEnvelope && lastPauseEnvelope.data;
+      $dbgMutData.value = JSON.stringify(cur ?? null, null, 2);
+      $dbgMutData.focus();
+    }
+  });
+  async function sendMutate(then) {
+    if (!dbgActive) return;
+    let parsed;
+    try { parsed = JSON.parse($dbgMutData.value); }
+    catch (e) { setStatus('mutate: data is not JSON: ' + e.message, 'error'); return; }
+    const { session, role } = dbgActive;
+    setStatus('mutating…');
+    try {
+      const r = await fetch('/api/debug/cmd', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ session, role, cmd: 'DEBUG_MUTATE', data: parsed, then }),
+      });
+      const reply = await r.json();
+      if (!r.ok) {
+        setStatus(`mutate failed: ${reply.error || r.status}`, 'error');
+        return;
+      }
+      setStatus(`mutate → ${then} (${role})`, 'ok');
+      dbgActive = null;
+      $dbgBar.hidden = true;
+      $dbgMutPanel.hidden = true;
+      clearPausedHighlight();
+      pollDebug();
+    } catch (e) {
+      setStatus('mutate error: ' + e.message, 'error');
+    }
+  }
+  $dbgMutApplyContinue.addEventListener('click', () => sendMutate('continue'));
+  $dbgMutApplyStep    .addEventListener('click', () => sendMutate('step_over'));
 
   // Keyboard shortcuts (Phase 4.5.5 will refine when not in
   // an input). For now, only fire when a pause is active.
