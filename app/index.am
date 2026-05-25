@@ -1,9 +1,11 @@
 // app/index.am  →  GET /
 //
 // Pollen Manager — landing page hosting the workflow editor.
-// Phase 4.0 ships a read-only SVG render of the current DAG +
-// a JSON textarea editor that PUTs to /api/workflow. Phase 4.1
-// will turn the SVG render into a drag-and-drop WYSIWYG.
+// Phase 4.1 ships drag-and-drop WYSIWYG on the SVG canvas, a
+// click-to-select side panel for editing each node's
+// host/port/consumes/emits/next, and Add/Delete buttons. Node
+// positions persist in workflow.json under the `_layout` sidecar
+// key (ignored by Pollen Phase 3.x runtime — purely cosmetic).
 
 import Amalgame.Web
 
@@ -15,21 +17,44 @@ public class Page {
             "<link rel=\"stylesheet\" href=\"/style.css\">" +
             "</head><body>" +
             "<header><h1>Pollen Manager</h1>" +
-            "<p class=\"subtitle\">workflow.json designer · v0.1.0-dev</p>" +
+            "<p class=\"subtitle\">workflow.json designer · v0.1.0-dev · Phase 4.1</p>" +
             "</header>" +
             "<main>" +
             "<section id=\"graph\">" +
+            "<div class=\"section-head\">" +
             "<h2>DAG</h2>" +
-            "<svg id=\"dag\" viewBox=\"0 0 800 360\"></svg>" +
+            "<div class=\"toolbar\">" +
+            "<button id=\"add-node\">+ Add node</button>" +
+            "<button id=\"delete-node\" disabled>Delete selected</button>" +
+            "</div>" +
+            "</div>" +
+            "<svg id=\"dag\" viewBox=\"0 0 800 420\"></svg>" +
+            "<p class=\"hint\">Drag nodes to reposition · Click to select · Layout persists in <code>_layout</code></p>" +
             "</section>" +
-            "<section id=\"editor\">" +
-            "<h2>workflow.json</h2>" +
-            "<textarea id=\"src\" spellcheck=\"false\"></textarea>" +
+            "<aside id=\"inspector\">" +
+            "<div class=\"section-head\">" +
+            "<h2>Inspector</h2>" +
+            "</div>" +
+            "<div id=\"inspector-empty\" class=\"placeholder\">Click a node to edit.</div>" +
+            "<form id=\"inspector-form\" hidden>" +
+            "<label>Name <input id=\"f-name\" type=\"text\"></label>" +
+            "<label>Host <input id=\"f-host\" type=\"text\" placeholder=\"127.0.0.1\"></label>" +
+            "<label>Port <input id=\"f-port\" type=\"number\"></label>" +
+            "<label>Consumes <input id=\"f-consumes\" type=\"text\" placeholder=\"topic1, topic2\"></label>" +
+            "<label>Emits <input id=\"f-emits\" type=\"text\" placeholder=\"topic1, topic2\"></label>" +
+            "<label>Next <input id=\"f-next\" type=\"text\" placeholder=\"node1, node2\"></label>" +
+            "<button type=\"button\" id=\"apply\">Apply</button>" +
+            "</form>" +
+            "<details id=\"raw-view\">" +
+            "<summary>Raw JSON</summary>" +
+            "<textarea id=\"src\" spellcheck=\"false\" readonly></textarea>" +
+            "</details>" +
             "<div class=\"actions\">" +
             "<button id=\"save\">Save</button>" +
+            "<button id=\"reload\">Reload</button>" +
             "<span id=\"status\"></span>" +
             "</div>" +
-            "</section>" +
+            "</aside>" +
             "</main>" +
             "<script src=\"/manager.js\"></script>" +
             "</body></html>"
