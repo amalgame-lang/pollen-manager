@@ -1,17 +1,21 @@
-// app/api/workflow.am  →  GET /api/workflow
+// app/api/workflow.am  →  GET/PUT /api/workflow
 //
-// Returns the workflow.json file referenced by WORKFLOW_PATH
-// (defaults to /tmp/pollen-wf.json) verbatim.
+// Loads/saves the workflow.json file referenced by WORKFLOW_PATH
+// (defaults to /tmp/pollen-wf.json).
 //
-// PUT is deferred to Phase 4.0.5: amalgame-web v0.13.3 WebContext
-// only exposes Params/State/Session/RequestId — there is no
-// request-body accessor on the handler input. Once a future
-// amalgame-web revision adds `ctx.Body: string` (or equivalent),
-// flip the editor into read-write here. Until then the user
-// edits the file on disk and Pollen's Phase 3.3 watcher picks
-// the change up within ~2 s.
+// PUT validates JSON syntax via JsonParser; on parse failure
+// the existing file stays put and we reply 400. SYNC broadcast
+// to running Pollen nodes is Phase 4.3 — for now, Pollen Phase
+// 3.3 watcher picks the new mtime up within ~2 s.
+//
+// Note: helpers can't be factored as static `Page.X()` because
+// the mosaic routes generator renames `class Page` to
+// `Api_Workflow_Page` and intra-class refs `Page.X()` don't
+// resolve in the renamed file. So WorkflowPath is inlined in
+// each verb (small price for the convention).
 
 import Amalgame.Web
+import Amalgame.Formats.Json
 
 public class Page {
     public static HttpResponse GET(ctx: WebContext) {
@@ -27,5 +31,34 @@ public class Page {
         return HttpResponse.New()
             .Header("content-type", "application/json")
             .Text(body)
+    }
+
+    public static HttpResponse PUT(ctx: WebContext) {
+        let body: string = ctx.Body
+        if (String_Length(body) == 0) {
+            return HttpResponse.New()
+                .Status(400)
+                .Header("content-type", "application/json")
+                .Text("{\"error\":\"empty body\"}")
+        }
+        // Validate JSON shape — refuse to overwrite the file with
+        // a broken document. Pollen nodes' Phase 3.3 watcher would
+        // otherwise reload garbage and free-form-mode the role.
+        let parser: JsonParser = new JsonParser(body)
+        let _: JsonValue = parser.ParseTopLevel()
+        if (parser.HasFailed()) {
+            let emsg: string = parser.ErrorMsg()
+            return HttpResponse.New()
+                .Status(400)
+                .Header("content-type", "application/json")
+                .Text("{\"error\":\"invalid JSON: " + emsg + "\"}")
+        }
+        var path: string = Env_Get("WORKFLOW_PATH")
+        if (String_Length(path) == 0) { path = "/tmp/pollen-wf.json" }
+        File_WriteAll(path, body)
+        let bytes: int = String_Length(body)
+        return HttpResponse.New()
+            .Header("content-type", "application/json")
+            .Text("{\"ok\":true,\"path\":\"" + path + "\",\"bytes\":" + String_FromInt(bytes) + "}")
     }
 }

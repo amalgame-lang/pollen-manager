@@ -37,11 +37,7 @@
   }
 
   async function save() {
-    // Phase 4.0.5: PUT /api/workflow is blocked on amalgame-web
-    // exposing the request body on WebContext. Until then, copy
-    // the textarea to the clipboard so the user can paste it into
-    // WORKFLOW_PATH manually (Pollen's Phase 3.3 watcher reloads
-    // within ~2 s).
+    setStatus('saving…');
     try {
       JSON.parse($src.value);
     } catch (e) {
@@ -49,11 +45,20 @@
       return;
     }
     try {
-      await navigator.clipboard.writeText($src.value);
-      setStatus('Copied to clipboard — paste into WORKFLOW_PATH on disk. PUT API arrives in Phase 4.0.5.', 'ok');
+      const r = await fetch('/api/workflow', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: $src.value,
+      });
+      const reply = await r.json();
+      if (!r.ok) {
+        setStatus('PUT failed: ' + (reply.error || r.status), 'error');
+        return;
+      }
+      setStatus('saved → ' + reply.path + ' (' + reply.bytes + ' bytes ; nodes reload within ~2s)', 'ok');
       render(JSON.parse($src.value));
     } catch (e) {
-      setStatus('clipboard write failed: ' + e.message, 'error');
+      setStatus('save failed: ' + e.message, 'error');
     }
   }
 
