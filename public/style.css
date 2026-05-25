@@ -32,6 +32,14 @@
 * { box-sizing: border-box; }
 
 html, body { height: 100%; }
+html {
+  /* Reserve scrollbar space even when content fits the viewport
+   * so transitions from "no scrollbar" to "scrollbar" (e.g. when
+   * a debug bar shows or live rows accumulate) don't shift the
+   * page width by ~17px. */
+  scrollbar-gutter: stable;
+  overflow-y: scroll;
+}
 body {
   margin: 0;
   background: var(--bg-0);
@@ -565,6 +573,10 @@ body[data-mode="watch"] #dag .node-badge.on { opacity: 1; }
   list-style: none;
   max-height: 260px;
   overflow-y: auto;
+  /* Reserve scrollbar space inside the list too — adding the
+   * first row that pushes content over max-height was making
+   * the row content jump 17px left. */
+  scrollbar-gutter: stable;
   border: 1px solid var(--line-low);
   border-radius: var(--radius-sm);
   background: var(--bg-0);
