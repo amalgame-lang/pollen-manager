@@ -4,9 +4,10 @@
   --bg: #fafafa;
   --panel: #fff;
   --border: #d8d8d8;
-  --accent: #f5b400;     /* pollen yellow */
+  --accent: #f5b400;
   --accent-dark: #cc8c00;
   --node: #ffe680;
+  --node-selected: #ffc94d;
   --edge: #888;
   --error: #c53030;
   --ok: #2f855a;
@@ -32,40 +33,65 @@ header .subtitle { margin: 0.25rem 0 0; color: var(--fg-muted); font-size: 0.85r
 
 main {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 2fr 1fr;
   gap: 1rem;
   padding: 1rem 2rem;
   max-width: 1400px;
   margin: 0 auto;
 }
 
-section {
+section, aside {
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 1rem;
 }
 
-section h2 {
-  margin: 0 0 0.75rem;
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+h2 {
+  margin: 0;
   font-size: 1rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--fg-muted);
 }
 
+.toolbar {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.toolbar button {
+  font-size: 0.85rem;
+  padding: 0.3rem 0.7rem;
+}
+
 #dag {
   width: 100%;
-  height: 360px;
+  height: 420px;
   background: #fff;
   border: 1px dashed var(--border);
   border-radius: 4px;
+  user-select: none;
 }
 
+#dag .node-group { cursor: grab; }
+#dag .node-group.dragging { cursor: grabbing; }
 #dag .node-rect {
   fill: var(--node);
   stroke: var(--accent-dark);
   stroke-width: 2;
+  transition: fill 80ms;
+}
+#dag .node-group.selected .node-rect {
+  fill: var(--node-selected);
+  stroke-width: 3;
 }
 #dag .node-label {
   font-family: system-ui;
@@ -89,22 +115,84 @@ section h2 {
   marker-end: url(#arrow);
 }
 
-textarea {
-  width: 100%;
-  height: 320px;
+.hint {
+  margin: 0.5rem 0 0;
+  font-size: 0.8rem;
+  color: var(--fg-muted);
+}
+.hint code {
+  background: #f4f4f4;
+  padding: 0.05rem 0.3rem;
+  border-radius: 3px;
+  font-size: 0.85em;
+}
+
+.placeholder {
+  color: var(--fg-muted);
+  font-style: italic;
+  padding: 1rem 0;
+  text-align: center;
+}
+
+#inspector-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+#inspector-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fg-muted);
+}
+#inspector-form input {
   font-family: ui-monospace, monospace;
   font-size: 13px;
+  padding: 0.4rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--fg);
+}
+#inspector-form input:focus {
+  outline: none;
+  border-color: var(--accent-dark);
+}
+#inspector-form #apply {
+  align-self: flex-start;
+  margin-top: 0.5rem;
+}
+
+#raw-view { margin-top: 1rem; }
+#raw-view summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--fg-muted);
+}
+#raw-view textarea {
+  width: 100%;
+  height: 180px;
+  margin-top: 0.5rem;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
   padding: 0.5rem;
   border: 1px solid var(--border);
   border-radius: 4px;
+  background: #f9f9f9;
+  color: var(--fg-muted);
   resize: vertical;
 }
 
 .actions {
-  margin-top: 0.5rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 0.5rem;
+  flex-wrap: wrap;
 }
 
 button {
@@ -115,9 +203,25 @@ button {
   font-weight: 600;
   cursor: pointer;
   border-radius: 4px;
+  font-size: 0.9rem;
 }
-button:hover { background: var(--accent-dark); color: #fff; }
+button:hover:not(:disabled) { background: var(--accent-dark); color: #fff; }
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+button#reload {
+  background: #e0e0e0;
+}
+button#reload:hover {
+  background: #c0c0c0;
+  color: var(--fg);
+}
 
-#status { font-size: 0.85rem; }
+#status {
+  font-size: 0.85rem;
+  flex: 1 1 100%;
+  margin-top: 0.25rem;
+}
 #status.ok    { color: var(--ok); }
 #status.error { color: var(--error); }
