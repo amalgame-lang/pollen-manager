@@ -231,12 +231,18 @@
       bpDot.setAttribute('r', 5);
       bpG.appendChild(bpDot);
       g.appendChild(bpG);
-      if (breakpoints.has(k)) g.classList.add('has-bp');
+      if (breakpoints.has(k)) {
+        g.classList.add('has-bp');
+        const def = breakpoints.get(k);
+        if (def && def.when) g.classList.add('has-bp-cond');
+      }
 
       g.addEventListener('mousedown', e => onNodeMouseDown(e, k));
       g.addEventListener('contextmenu', e => {
         e.preventDefault();
-        toggleBreakpoint(k);
+        // shift+right-click → edit condition (set / change / clear)
+        // plain right-click  → toggle on/off
+        toggleBreakpoint(k, { editCondition: e.shiftKey });
       });
       $svg.appendChild(g);
       const idx = nodeIndex.get(k);
@@ -830,15 +836,30 @@
   let dbgActive = null;  // { session, role } of the currently shown pause
   let dbgPausedRole = null;  // role with the .paused class on DAG, for cleanup
   // Client-side breakpoints — set via right-click on a DAG node,
-  // persisted in localStorage. They're DISPLAY-ONLY today : the
-  // operator copies the string to their --debug-bp CLI arg via
-  // the [⎘] button. Phase 4.5.5 will wire them into a UI-driven
-  // "Inject debug msg" form so no CLI is required.
+  // persisted in localStorage. Each bp can optionally carry a
+  // condition (Phase 4.5.6) :
+  //   { role: "xformer", when: "data.amount > 1000" }
+  // shift+right-click on a node prompts for the condition. The
+  // condition is evaluated client-side when a DEBUG_PAUSE arrives
+  // — if false, we silently auto-CONTINUE so the user only sees
+  // the pauses that genuinely matter.
+  //
+  // Stored shape : Map<role, {when?: string}>.
   const BP_STORAGE_KEY = 'pollen-manager:bp';
-  let breakpoints = new Set();
+  let breakpoints = new Map();
   try {
     const stored = localStorage.getItem(BP_STORAGE_KEY);
-    if (stored) breakpoints = new Set(JSON.parse(stored));
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed)) {
+        // Legacy format : plain array of role names (Phase 4.5.3.2).
+        for (const r of parsed) breakpoints.set(r, {});
+      } else if (parsed && typeof parsed === 'object') {
+        for (const [k, v] of Object.entries(parsed)) {
+          breakpoints.set(k, v || {});
+        }
+      }
+    }
   } catch (e) { /* corrupt storage, ignore */ }
 
   function clearPausedHighlight() {
@@ -856,11 +877,89 @@
     dbgPausedRole = role;
   }
 
+  // ── Conditional breakpoint evaluator (Phase 4.5.6) ──
+  // Tiny DSL : `lhs OP rhs` where lhs is a dotted path on the
+  // message envelope (typically "data.X" or "data.user.name"),
+  // OP is one of == != < > <= >=, rhs is a number, a quoted
+  // string, or a bare token (true/false/null/bare ident).
+  //
+  // Eval failures return TRUE (better to over-pause than to
+  // silently skip a pause the operator wanted).
+  function evalCondition(exprStr, envelope) {
+    if (!exprStr) return true;
+    const re = /^\s*(\S+)\s*(==|!=|<=|>=|<|>)\s*(.+?)\s*$/;
+    const m = exprStr.match(re);
+    if (!m) return true;  // parse fail → pause
+    const lhsPath = m[1];
+    const op = m[2];
+    let rhs = m[3].trim();
+    if (rhs.startsWith('"') && rhs.endsWith('"')) rhs = rhs.slice(1, -1);
+    else if (rhs.startsWith("'") && rhs.endsWith("'")) rhs = rhs.slice(1, -1);
+    else if (rhs === 'true')  rhs = true;
+    else if (rhs === 'false') rhs = false;
+    else if (rhs === 'null')  rhs = null;
+    else if (!isNaN(Number(rhs))) rhs = Number(rhs);
+    // Walk the dotted path. Conventionally the operator writes
+    // `data.X` (data being the envelope's data field), so we
+    // pivot on the first segment as a known root.
+    const segs = lhsPath.split('.');
+    let v = envelope;
+    if (segs[0] === 'data')      v = envelope.data;
+    else if (segs[0] === 'msg' || segs[0] === 'envelope') v = envelope;
+    else                          v = envelope.data;  // assume data.X shorthand
+    const start = (segs[0] === 'data' || segs[0] === 'msg' || segs[0] === 'envelope') ? 1 : 0;
+    for (let i = start; i < segs.length; i++) {
+      if (v == null) return false;  // missing field → don't pause
+      v = v[segs[i]];
+    }
+    switch (op) {
+      case '==': return v === rhs;
+      case '!=': return v !== rhs;
+      case '<':  return v <  rhs;
+      case '>':  return v >  rhs;
+      case '<=': return v <= rhs;
+      case '>=': return v >= rhs;
+    }
+    return true;
+  }
+
+  // Fire-and-forget DEBUG_CONTINUE for a pause whose condition
+  // evaluated false. The pause is silently resolved before the
+  // UI ever shows it.
+  function autoContinue(session, role) {
+    fetch('/api/debug/cmd', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ session, role, cmd: 'DEBUG_CONTINUE' }),
+    }).catch(() => { /* silent */ });
+  }
+
   async function pollDebug() {
     try {
       const r = await fetch('/api/debug/pauses');
       if (!r.ok) return;
-      const list = await r.json();
+      const rawList = await r.json();
+
+      // Filter out pauses whose condition evaluates to false —
+      // for each, fire a DEBUG_CONTINUE in the background so the
+      // Pollen node moves on. Keeps the bar reserved for pauses
+      // the operator actually wants to see.
+      const list = [];
+      for (const p of rawList) {
+        const bps = p.raw && p.raw.envelope && p.raw.envelope.debug
+                  && p.raw.envelope.debug.breakpoints;
+        let cond = null;
+        if (Array.isArray(bps)) {
+          const match = bps.find(b => b && b.role === p.role);
+          if (match && match.when) cond = match.when;
+        }
+        if (cond && !evalCondition(cond, p.raw.envelope)) {
+          autoContinue(p.session, p.role);
+          continue;
+        }
+        list.push(p);
+      }
+
       if (!list.length) {
         if (dbgActive) {
           dbgActive = null;
@@ -874,7 +973,10 @@
       const mid = env.messageId ? env.messageId.slice(0, 8) : '?';
       const topicIn = (env.topic && env.topic.uuid) || '?';
       const more = list.length > 1 ? ` (+${list.length - 1} more)` : '';
-      $dbgInfo.textContent = `${p.role} · session ${p.session} · mid ${mid} · topic ${topicIn}${more}`;
+      const bps = (env.debug && env.debug.breakpoints) || [];
+      const myBp = bps.find(b => b && b.role === p.role);
+      const condTag = myBp && myBp.when ? ` · cond[${myBp.when}]` : '';
+      $dbgInfo.textContent = `${p.role} · session ${p.session} · mid ${mid} · topic ${topicIn}${condTag}${more}`;
       $dbgBar.hidden = false;
       dbgActive = { session: p.session, role: p.role };
       setPausedHighlight(p.role);
@@ -941,13 +1043,37 @@
   });
 
   // ── Breakpoints UI ──────────────────────────────────────────
-  function toggleBreakpoint(name) {
-    if (breakpoints.has(name)) breakpoints.delete(name);
-    else breakpoints.add(name);
+  function toggleBreakpoint(name, opts) {
+    // opts.editCondition = true → prompt the operator for a
+    // condition expression. Otherwise just toggle on/off.
+    if (opts && opts.editCondition) {
+      const existing = breakpoints.get(name);
+      const cur = (existing && existing.when) || '';
+      const next = prompt(
+        `Condition for breakpoint @${name} (leave empty = always pause)\n\n` +
+        `Examples :\n` +
+        `  data.amount > 1000\n` +
+        `  data.kind == "vip"\n` +
+        `  data.retry >= 3`,
+        cur
+      );
+      if (next === null) return;  // cancelled
+      const trimmed = next.trim();
+      if (trimmed === '' && !existing) return;  // no-op
+      breakpoints.set(name, trimmed ? { when: trimmed } : {});
+    } else {
+      if (breakpoints.has(name)) breakpoints.delete(name);
+      else breakpoints.set(name, {});
+    }
     saveBreakpoints();
     syncBpSummary();
     const e = nodeIndex.get(name);
-    if (e && e.g) e.g.classList.toggle('has-bp', breakpoints.has(name));
+    if (e && e.g) {
+      e.g.classList.toggle('has-bp', breakpoints.has(name));
+      const has = breakpoints.has(name);
+      const cond = has && breakpoints.get(name).when;
+      e.g.classList.toggle('has-bp-cond', !!cond);
+    }
     // Refresh the inject hint if the panel is open. The function
     // is defined later in this IIFE but hoisted (function decl)
     // so we can call it from here.
@@ -959,13 +1085,28 @@
 
   function saveBreakpoints() {
     try {
-      localStorage.setItem(BP_STORAGE_KEY,
-        JSON.stringify([...breakpoints]));
+      const obj = Object.fromEntries(breakpoints);
+      localStorage.setItem(BP_STORAGE_KEY, JSON.stringify(obj));
     } catch (e) { /* ignore quota errors */ }
   }
 
+  // Comma-joined list of bp roles (used by the [⎘] copy button
+  // to assemble the --debug-bp CLI arg). Conditions aren't
+  // included since the CLI doesn't yet support them — they only
+  // work via the UI inject path (Phase 4.5.6).
   function bpCsv() {
-    return [...breakpoints].join(',');
+    return [...breakpoints.keys()].join(',');
+  }
+
+  // Build the list of bp objects to send via the inject envelope.
+  function bpList() {
+    const out = [];
+    for (const [role, def] of breakpoints) {
+      const item = { role };
+      if (def && def.when) item.when = def.when;
+      out.push(item);
+    }
+    return out;
   }
 
   function syncBpSummary() {
@@ -974,7 +1115,9 @@
       return;
     }
     $bpSummary.hidden = false;
-    $bpList.textContent = bpCsv();
+    const labels = [...breakpoints].map(([role, def]) =>
+      def && def.when ? `${role}[${def.when}]` : role);
+    $bpList.textContent = labels.join(' ');
   }
 
   $bpCopy.addEventListener('click', async () => {
@@ -1079,7 +1222,7 @@
           topic,
           version: 1,
           data,
-          breakpoints: [...breakpoints],
+          breakpoints: bpList(),
         }),
       });
       const reply = await r.json();
