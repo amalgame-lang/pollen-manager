@@ -56,7 +56,22 @@ public class Page {
                 .Header("content-type", "application/json")
                 .Text("{\"error\":\"unknown cmd " + cmd + "\"}")
         }
-        let ok: bool = DebugServer.SendCommand(session, role, cmd)
+        // Phase 4.5.7 — MUTATE carries extra fields :
+        //   {"session":..,"role":..,"cmd":"DEBUG_MUTATE",
+        //    "data":<json>,"then":"continue|step_over|step_into"}
+        // Build the extra JSON fragment to splice into the reply
+        // sent to the Pollen node.
+        var extraJson: string = ""
+        if (cmd == "DEBUG_MUTATE") {
+            let dataV: JsonValue = root.Get("data")
+            let thenV: JsonValue = root.Get("then")
+            var thenStr: string = thenV.AsString()
+            if (String_Length(thenStr) == 0) { thenStr = "continue" }
+            extraJson = ",\"data\":" + Json.Encode(dataV) +
+                        ",\"then\":\"" + Json.EscapeString(thenStr) + "\""
+        }
+
+        let ok: bool = DebugServer.SendCommandWith(session, role, cmd, extraJson)
         if (!ok) {
             return HttpResponse.New()
                 .Status(404)
