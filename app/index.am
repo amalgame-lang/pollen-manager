@@ -16,8 +16,13 @@ public class Page {
             "<title>Pollen Manager</title>" +
             "<link rel=\"stylesheet\" href=\"/style.css\">" +
             "</head><body>" +
-            "<header><h1>Pollen Manager</h1>" +
-            "<p class=\"subtitle\">workflow.json designer · v0.1.0-dev · Phase 4.1</p>" +
+            "<header>" +
+            "<h1>Pollen Manager</h1>" +
+            "<p class=\"subtitle\">workflow.json · v0.1.0-dev</p>" +
+            "<div class=\"mode-switch\" role=\"tablist\">" +
+            "<button id=\"mode-edit\"  class=\"mode-btn active\" role=\"tab\" aria-selected=\"true\">Edit</button>" +
+            "<button id=\"mode-watch\" class=\"mode-btn\"        role=\"tab\" aria-selected=\"false\">Watch</button>" +
+            "</div>" +
             "</header>" +
             "<main>" +
             "<section id=\"graph\">" +
@@ -33,11 +38,10 @@ public class Page {
             "<div class=\"section-head live-head\">" +
             "<h2>Live executions</h2>" +
             "<div class=\"toolbar\">" +
-            "<label class=\"toggle\"><input id=\"live-toggle\" type=\"checkbox\" checked> Polling 2s</label>" +
             "<span id=\"live-meta\"></span>" +
             "</div>" +
             "</div>" +
-            "<ol id=\"live-list\"><li class=\"placeholder\">No executions yet.</li></ol>" +
+            "<ol id=\"live-list\"><li class=\"placeholder\">Switch to <strong>Watch</strong> mode to see live executions.</li></ol>" +
             "</section>" +
             "<aside id=\"inspector\">" +
             "<div class=\"section-head\">" +
