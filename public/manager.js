@@ -716,14 +716,23 @@
     syncBadges();
   }
 
+  // Restart a CSS animation without forcing a sync reflow via
+  // getBoundingClientRect (which made the whole page reflow on
+  // each new poll record — visible jank, scrollbar oscillation).
+  // requestAnimationFrame schedules the re-add for the next
+  // frame, the browser does its own layout pass naturally.
+  function restartFlash(el, className, durationMs) {
+    el.classList.remove(className);
+    requestAnimationFrame(() => {
+      el.classList.add(className);
+      setTimeout(() => el.classList.remove(className), durationMs);
+    });
+  }
+
   function flashNode(role) {
     const e = nodeIndex.get(role);
     if (!e || !e.g) return;
-    // Re-trigger the CSS animation by toggling the class off then on.
-    e.g.classList.remove('flash');
-    void e.g.getBoundingClientRect();
-    e.g.classList.add('flash');
-    setTimeout(() => e.g && e.g.classList.remove('flash'), 1400);
+    restartFlash(e.g, 'flash', 1400);
   }
 
   function flashEdge(from, to) {
@@ -731,10 +740,7 @@
     if (!e) return;
     for (const line of e.edgesFrom) {
       if (line.dataset.to !== to) continue;
-      line.classList.remove('flash');
-      void line.getBoundingClientRect();
-      line.classList.add('flash');
-      setTimeout(() => line.classList.remove('flash'), 1400);
+      restartFlash(line, 'flash', 1400);
     }
   }
 
