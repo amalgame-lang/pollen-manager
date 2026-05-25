@@ -85,6 +85,10 @@ body[data-mode="watch"] #dag .node-group { cursor: default; }
 body[data-mode="watch"] #inspector-form input { color: var(--fg-muted); }
 
 /* ── Debug bridge banner (Phase 4.5.3) ────────────────────── */
+/* Explicit hidden override — #debug-bar's ID-selector display:flex
+ * outweighs the UA stylesheet's [hidden]{display:none}, so we
+ * have to re-state it with matching specificity. */
+#debug-bar[hidden] { display: none; }
 #debug-bar {
   display: flex;
   align-items: center;
@@ -333,6 +337,7 @@ body[data-mode="watch"] #dag .node-badge.on { opacity: 1; }
   font-size: 13px;
 }
 
+#inspector-form[hidden] { display: none; }
 #inspector-form {
   display: flex;
   flex-direction: column;
