@@ -196,29 +196,46 @@ body[data-mode="watch"] #inspector-form input { color: var(--fg-muted); }
 }
 
 /* ── Debug bridge banner (Phase 4.5.3) ────────────────────── */
-/* Explicit hidden override — #debug-bar's ID-selector display:flex
- * outweighs the UA stylesheet's [hidden]{display:none}, so we
- * have to re-state it with matching specificity. */
+/* Position: fixed so the bar OVERLAYS the top of the page when
+ * a pause arrives, instead of inserting ~40px between header
+ * and main — the previous "page jumps" complaint. The DAG +
+ * panels behind keep their layout stable ; the bar slides in
+ * over the header (acceptable trade : while debugging the
+ * header is less useful than the controls).
+ */
 #debug-bar[hidden] { display: none; }
 #debug-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 8px 28px;
   background: linear-gradient(90deg,
-    rgba(245, 180, 0, 0.15) 0%,
-    rgba(245, 180, 0, 0.03) 100%);
-  border-bottom: 1px solid var(--accent);
+    rgba(245, 180, 0, 0.96) 0%,
+    rgba(245, 180, 0, 0.88) 100%);
+  border-bottom: 1px solid var(--accent-dark);
+  color: var(--bg-0);
   font: 12px var(--font-mono);
   flex-wrap: wrap;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  animation: debug-bar-in 180ms ease-out;
+}
+@keyframes debug-bar-in {
+  from { transform: translateY(-100%); }
+  to   { transform: translateY(0);     }
 }
 #debug-bar .label {
-  color: var(--accent);
-  font-weight: 700;
+  color: var(--bg-0);
+  font-weight: 800;
   letter-spacing: 0.04em;
 }
 #debug-bar .info {
-  color: var(--fg-muted);
+  color: rgba(11, 12, 14, 0.85);
+  font-weight: 600;
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -232,14 +249,32 @@ body[data-mode="watch"] #inspector-form input { color: var(--fg-muted); }
 #debug-bar button {
   font-size: 11px;
   padding: 4px 10px;
+  background: var(--bg-0);
+  color: var(--fg);
+  border-color: var(--bg-2);
+}
+#debug-bar button:hover:not(:disabled) {
+  background: var(--bg-1);
+  border-color: var(--bg-3);
+}
+#debug-bar button.primary {
+  background: var(--bg-0);
+  color: var(--accent);
+  border-color: var(--bg-0);
+}
+#debug-bar button.primary:hover:not(:disabled) {
+  background: var(--bg-1);
+  color: var(--accent);
 }
 #debug-bar button.danger {
-  border-color: #4a2424;
+  background: var(--bg-0);
   color: var(--error);
+  border-color: var(--bg-0);
 }
 #debug-bar button.danger:hover:not(:disabled) {
   background: #2a1818;
   border-color: var(--error);
+  color: var(--error);
 }
 header h1 {
   margin: 0;
