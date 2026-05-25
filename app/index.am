@@ -39,6 +39,7 @@ public class Page {
             "<h2>Live executions</h2>" +
             "<div class=\"toolbar\">" +
             "<span id=\"live-meta\"></span>" +
+            "<button id=\"cleanup\" title=\"Purge records older than EXEC_RETENTION_MIN (default 60min)\">Cleanup</button>" +
             "</div>" +
             "</div>" +
             "<ol id=\"live-list\"><li class=\"placeholder\">Switch to <strong>Watch</strong> mode to see live executions.</li></ol>" +

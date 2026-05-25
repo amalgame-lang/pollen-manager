@@ -1,0 +1,25 @@
+// app/api/cleanup.am  →  POST /api/cleanup
+//
+// Triggers an immediate GC of executions/ records older than the
+// EXEC_RETENTION_MIN env var (defaults to 60 min, same as the
+// background loop). Returns { ok: true, purged: N }.
+//
+// Operator-facing : useful to free space without waiting for the
+// next background tick.
+
+import Amalgame.Web
+
+public class Page {
+    public static HttpResponse POST(ctx: WebContext) {
+        var retentionMin: int = 60
+        let retentionEnv: string = Env_Get("EXEC_RETENTION_MIN")
+        if (String_Length(retentionEnv) > 0) {
+            let r: int = String_ToInt(retentionEnv)
+            if (r > 0) { retentionMin = r }
+        }
+        let purged: int = Program.RunGc(retentionMin)
+        return HttpResponse.New()
+            .Header("content-type", "application/json")
+            .Text("{\"ok\":true,\"purged\":" + String_FromInt(purged) + "}")
+    }
+}
