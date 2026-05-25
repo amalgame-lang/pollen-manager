@@ -310,6 +310,82 @@ button#save.pulse {
 #status.ok    { color: var(--ok); }
 #status.error { color: var(--error); }
 
+/* ── Live executions panel (Phase 4.2) ────────────────────── */
+.live-head {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line-low);
+}
+.live-head .toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: 11px var(--font-mono);
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+.live-head .toggle input { accent-color: var(--accent); }
+.live-head #live-meta {
+  font: 10px var(--font-mono);
+  color: var(--fg-dim);
+  margin-left: 6px;
+}
+
+#live-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--line-low);
+  border-radius: var(--radius-sm);
+  background: var(--bg-0);
+}
+#live-list .placeholder {
+  color: var(--fg-dim);
+  font-style: italic;
+  text-align: center;
+  padding: 18px 8px;
+  font-size: 12px;
+}
+#live-list .live-row {
+  display: grid;
+  grid-template-columns: 70px 100px 75px 1fr;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 10px;
+  font: 11px var(--font-mono);
+  border-bottom: 1px solid var(--line-low);
+  cursor: default;
+  transition: background 80ms;
+}
+#live-list .live-row:last-child { border-bottom: 0; }
+#live-list .live-row:hover { background: var(--bg-2); }
+#live-list .live-row .t { color: var(--fg-dim); }
+#live-list .live-row .role {
+  color: var(--fg);
+  font-weight: 600;
+}
+#live-list .live-row .mid { color: var(--fg-muted); }
+#live-list .live-row .topics { color: var(--fg-muted); }
+#live-list .live-row.terminal .role { color: var(--ok); }
+#live-list .live-row.terminal .topics { color: var(--ok); }
+#live-list .live-row.flash {
+  animation: flash-in 1.4s ease-out;
+}
+
+@keyframes flash-in {
+  0%   { background: var(--accent-glow); }
+  100% { background: transparent; }
+}
+
+/* hover-from-live highlight on a DAG node */
+#dag .node-group.flash-hi .node-rect {
+  stroke: var(--accent);
+  stroke-width: 2;
+  fill: var(--bg-3);
+}
+
 /* ── Scrollbar polish (WebKit) ────────────────────────────── */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }

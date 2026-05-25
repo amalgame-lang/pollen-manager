@@ -30,6 +30,14 @@ public class Page {
             "</div>" +
             "<svg id=\"dag\" viewBox=\"0 0 800 420\"></svg>" +
             "<p class=\"hint\">Drag nodes to reposition · Click to select · Layout persists in <code>_layout</code></p>" +
+            "<div class=\"section-head live-head\">" +
+            "<h2>Live executions</h2>" +
+            "<div class=\"toolbar\">" +
+            "<label class=\"toggle\"><input id=\"live-toggle\" type=\"checkbox\" checked> Polling 2s</label>" +
+            "<span id=\"live-meta\"></span>" +
+            "</div>" +
+            "</div>" +
+            "<ol id=\"live-list\"><li class=\"placeholder\">No executions yet.</li></ol>" +
             "</section>" +
             "<aside id=\"inspector\">" +
             "<div class=\"section-head\">" +
