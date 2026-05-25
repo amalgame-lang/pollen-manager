@@ -260,6 +260,167 @@
         && $injectPanel && !$injectPanel.hidden) {
       refreshInjectTargets();
     }
+    renderTree();
+  }
+
+  // ── workflow tree view (Phase 5.x) ─────────────────────────────
+  //
+  // Renders wf.tree as a nested outline. Each step prints its type
+  // and the relevant fields :
+  //   call     → role name
+  //   fan_out  → list of roles
+  //   sequence → header + recursive children
+  //   if       → branches, each a "when <op> <var> <value>" line
+  //              followed by its `then` (recursive) and the else branch
+  //   set      → `state.X = <expr summary>`
+  //   for      → "for <var> in [<items>] do …"
+  //   while    → "while <cond> (maxIter=N) do …"
+  //   end      → terminal marker
+  // Read-only for now ; editing controls land in Phase 5.5.
+  function renderTree() {
+    const $treeView = document.getElementById('tree-view');
+    if (!$treeView) return;
+    const $empty   = document.getElementById('tree-empty');
+    const $outline = document.getElementById('tree-outline');
+    const $tag     = document.getElementById('tree-schema-tag');
+    if (!$empty || !$outline) return;
+
+    if ($tag) {
+      $tag.textContent = (wf && wf.schema) ? wf.schema : '';
+    }
+
+    if (!wf || !wf.tree || typeof wf.tree !== 'object') {
+      $empty.hidden = false;
+      $outline.hidden = true;
+      $outline.innerHTML = '';
+      return;
+    }
+
+    $empty.hidden = true;
+    $outline.hidden = false;
+    $outline.innerHTML = '';
+    $outline.appendChild(renderTreeNode(wf.tree));
+  }
+
+  function summarizeExpr(expr) {
+    if (expr === null || expr === undefined) return '<i>?</i>';
+    if (typeof expr !== 'object') return JSON.stringify(expr);
+    if ('const' in expr) {
+      return JSON.stringify(expr.const);
+    }
+    if ('var' in expr) {
+      return `<code>${escapeHtml(expr.var)}</code>`;
+    }
+    if ('op' in expr && 'left' in expr && 'right' in expr) {
+      return `${summarizeExpr(expr.left)} <b>${escapeHtml(expr.op)}</b> ${summarizeExpr(expr.right)}`;
+    }
+    return `<i>${escapeHtml(JSON.stringify(expr).slice(0, 40))}</i>`;
+  }
+
+  function summarizeCond(branch) {
+    // Branch shape : {op, var, value, then}. Missing op = else.
+    if (!branch || branch.op === undefined) return '<b>else</b>';
+    const v = branch.value;
+    const vStr = (typeof v === 'string')
+      ? JSON.stringify(v)
+      : (v === null || v === undefined ? '?' : String(v));
+    return `<code>${escapeHtml(branch.var || '?')}</code> <b>${escapeHtml(branch.op)}</b> ${escapeHtml(vStr)}`;
+  }
+
+  function escapeHtml(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
+  function renderTreeNode(step) {
+    const li = document.createElement('li');
+    li.className = 'tree-node';
+    if (!step || typeof step !== 'object') {
+      li.innerHTML = '<span class="tree-unknown">(invalid step)</span>';
+      return li;
+    }
+    const t = step.type;
+    const head = document.createElement('div');
+    head.className = `tree-head-${t || 'unknown'}`;
+
+    if (t === 'sequence') {
+      head.innerHTML = '<span class="tree-kw">sequence</span>';
+      li.appendChild(head);
+      const children = document.createElement('ol');
+      children.className = 'tree-children';
+      const steps = Array.isArray(step.steps) ? step.steps : [];
+      steps.forEach(s => children.appendChild(renderTreeNode(s)));
+      li.appendChild(children);
+    } else if (t === 'call') {
+      head.innerHTML = `<span class="tree-kw">call</span> → <span class="tree-role">${escapeHtml(step.node || '?')}</span>`;
+      li.appendChild(head);
+    } else if (t === 'fan_out') {
+      const nodes = (step.nodes || []).map(escapeHtml).join(', ');
+      head.innerHTML = `<span class="tree-kw">fan_out</span> → <span class="tree-role">[${nodes}]</span>`;
+      li.appendChild(head);
+    } else if (t === 'if') {
+      head.innerHTML = '<span class="tree-kw">if</span>';
+      li.appendChild(head);
+      const branches = Array.isArray(step.branches) ? step.branches : [];
+      const list = document.createElement('ol');
+      list.className = 'tree-children';
+      branches.forEach((b, idx) => {
+        const bli = document.createElement('li');
+        bli.className = 'tree-branch';
+        const label = (idx === 0)
+          ? 'when'
+          : (b.op === undefined ? 'else' : 'elseif');
+        const cond = (label === 'else')
+          ? '<b>else</b>'
+          : `<span class="tree-kw-sub">${label}</span> ${summarizeCond(b)}`;
+        const bhead = document.createElement('div');
+        bhead.className = 'tree-cond';
+        bhead.innerHTML = cond;
+        bli.appendChild(bhead);
+        if (b.then) {
+          const inner = document.createElement('ol');
+          inner.className = 'tree-children';
+          inner.appendChild(renderTreeNode(b.then));
+          bli.appendChild(inner);
+        }
+        list.appendChild(bli);
+      });
+      li.appendChild(list);
+    } else if (t === 'set') {
+      head.innerHTML = `<span class="tree-kw">set</span> <code>${escapeHtml(step.path || '?')}</code> = ${summarizeExpr(step.value)}`;
+      li.appendChild(head);
+    } else if (t === 'for') {
+      const items = Array.isArray(step.in)
+        ? step.in.map(x => JSON.stringify(x)).join(', ')
+        : '?';
+      head.innerHTML = `<span class="tree-kw">for</span> <code>${escapeHtml(step.var || 'item')}</code> in [${escapeHtml(items)}]`;
+      li.appendChild(head);
+      if (step.do) {
+        const inner = document.createElement('ol');
+        inner.className = 'tree-children';
+        inner.appendChild(renderTreeNode(step.do));
+        li.appendChild(inner);
+      }
+    } else if (t === 'while') {
+      const max = (step.maxIter !== undefined) ? ` <span class="tree-meta">(maxIter=${escapeHtml(step.maxIter)})</span>` : '';
+      head.innerHTML = `<span class="tree-kw">while</span> ${summarizeCond(step.cond ? Object.assign({}, step.cond, {value: step.cond.value}) : {})}${max}`;
+      li.appendChild(head);
+      if (step.do) {
+        const inner = document.createElement('ol');
+        inner.className = 'tree-children';
+        inner.appendChild(renderTreeNode(step.do));
+        li.appendChild(inner);
+      }
+    } else if (t === 'end') {
+      head.innerHTML = '<span class="tree-kw">end</span>';
+      li.appendChild(head);
+    } else {
+      head.innerHTML = `<span class="tree-unknown">${escapeHtml(t || '?')}</span>`;
+      li.appendChild(head);
+    }
+    return li;
   }
 
   function refreshRaw() {

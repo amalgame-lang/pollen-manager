@@ -630,6 +630,87 @@ body[data-mode="watch"] #dag .node-badge.on { opacity: 1; }
 #status.ok    { color: var(--ok); }
 #status.error { color: var(--error); }
 
+/* ── Workflow tree outline (Phase 5.x) ──────────────────────
+ *
+ * Sits between DAG (topology) and Live (runtime). Read-only for
+ * the moment ; Phase 5.5 adds inline editing.
+ */
+.tree-head {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line-low);
+}
+.tree-head .tag {
+  font: 10px var(--font-mono);
+  color: var(--fg-dim);
+  background: var(--bg-mid);
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin-left: 6px;
+}
+#tree-view {
+  font: 12px var(--font-mono);
+  background: var(--bg-mid);
+  border: 1px solid var(--line-low);
+  border-radius: 4px;
+  padding: 10px 14px;
+  margin-top: 6px;
+  max-height: 320px;
+  overflow: auto;
+}
+#tree-view .placeholder {
+  color: var(--fg-dim);
+  margin: 0;
+}
+#tree-outline,
+#tree-outline ol.tree-children {
+  list-style: none;
+  margin: 0;
+  padding-left: 16px;
+}
+#tree-outline {
+  padding-left: 0;
+}
+#tree-outline li {
+  margin: 2px 0;
+  line-height: 1.45;
+}
+#tree-outline .tree-node > div,
+#tree-outline .tree-branch > div {
+  display: inline-block;
+}
+.tree-kw {
+  color: var(--accent);
+  font-weight: 600;
+}
+.tree-kw-sub {
+  color: var(--fg);
+  font-weight: 600;
+}
+.tree-role {
+  color: var(--fg);
+  background: rgba(255,255,255,0.04);
+  padding: 0 4px;
+  border-radius: 3px;
+}
+.tree-cond code {
+  color: #e3a55a;
+}
+.tree-cond b {
+  color: var(--fg-muted);
+}
+.tree-meta {
+  color: var(--fg-dim);
+  font-style: italic;
+}
+.tree-unknown {
+  color: var(--danger, #d65560);
+}
+.tree-head-if    > div { color: var(--fg); }
+.tree-head-set   > div { color: var(--fg); }
+.tree-head-for   > div { color: var(--fg); }
+.tree-head-while > div { color: var(--fg); }
+
 /* ── Live executions panel (Phase 4.2) ────────────────────── */
 .live-head {
   margin-top: 18px;

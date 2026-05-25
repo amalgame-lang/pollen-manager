@@ -70,6 +70,25 @@ public class Page {
             "</div>" +
             "<svg id=\"dag\" viewBox=\"0 0 800 420\"></svg>" +
             "<p class=\"hint\">Drag nodes to reposition · Click to select · Layout persists in <code>_layout</code></p>" +
+            // ── Workflow tree (Phase 5.x) ──
+            // Renders the v2 `tree` field as a nested outline so the
+            // operator can see if / elseif / else / set / for / while
+            // alongside the DAG. The DAG view above stays focused on
+            // topology ; this section is structure-only. Editing
+            // controls land in Phase 5.5+.
+            "<div class=\"section-head tree-head\">" +
+            "<h2>Tree <span id=\"tree-schema-tag\" class=\"tag\"></span></h2>" +
+            "<div class=\"toolbar\">" +
+            "<button id=\"tree-add-if\" disabled title=\"Edit mode coming in 5.5\">+ if</button>" +
+            "<button id=\"tree-add-set\" disabled title=\"Edit mode coming in 5.5\">+ set</button>" +
+            "<button id=\"tree-add-for\" disabled title=\"Edit mode coming in 5.5\">+ for</button>" +
+            "<button id=\"tree-add-while\" disabled title=\"Edit mode coming in 5.5\">+ while</button>" +
+            "</div>" +
+            "</div>" +
+            "<div id=\"tree-view\">" +
+            "<p class=\"placeholder\" id=\"tree-empty\">No <code>tree</code> in this workflow. Add one in Raw JSON or upgrade to schema <code>workflow-tree/v1</code>.</p>" +
+            "<ol id=\"tree-outline\" hidden></ol>" +
+            "</div>" +
             "<div class=\"section-head live-head\">" +
             "<h2>Live executions</h2>" +
             "<div class=\"toolbar\">" +
