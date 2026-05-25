@@ -176,6 +176,14 @@ body[data-mode="watch"] #inspector-form input { color: var(--fg-muted); }
   stroke: var(--accent);
   stroke-dasharray: 4 2;
 }
+/* Conditional bp — outer ring on the dot to distinguish from
+ * an unconditional bp. The bp chip in the header also gets a
+ * different label style (see #bp-summary). */
+#dag .node-group.has-bp-cond .bp-dot {
+  stroke: var(--fg);
+  stroke-width: 2;
+  fill: var(--bg-0);
+}
 
 /* Paused node on the DAG : persistent glow until step/continue */
 #dag .node-group.paused .node-rect {

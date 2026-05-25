@@ -71,6 +71,11 @@ public class Page {
         }
 
         // Breakpoints array → JSON shape expected by Pollen.
+        // Each entry is an object {role, when?} — `when` is an
+        // optional condition expression (Phase 4.5.6) evaluated
+        // client-side when a pause arrives. Pollen passes it
+        // through unchanged. We re-serialize the JsonValue via
+        // Json.Encode so any structured fields stay intact.
         var bpsArr: string = "[]"
         var hasBp: bool = false
         if (bV.IsArray()) {
@@ -80,10 +85,9 @@ public class Page {
                 hasBp = true
                 var inner: string = ""
                 for i in 0..n {
-                    let r: string = bps.Get(i).AsString()
-                    if (String_Length(r) == 0) { continue }
+                    let item: JsonValue = bps.Get(i)
                     if (String_Length(inner) > 0) { inner = inner + "," }
-                    inner = inner + "{\"role\":\"" + Json.EscapeString(r) + "\"}"
+                    inner = inner + Json.Encode(item)
                 }
                 bpsArr = "[" + inner + "]"
             }
