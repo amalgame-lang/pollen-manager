@@ -26,7 +26,7 @@ public class Page {
             "<h2>workflow.json</h2>" +
             "<textarea id=\"src\" spellcheck=\"false\"></textarea>" +
             "<div class=\"actions\">" +
-            "<button id=\"save\">Copy</button>" +
+            "<button id=\"save\">Save</button>" +
             "<span id=\"status\"></span>" +
             "</div>" +
             "</section>" +
