@@ -200,9 +200,31 @@
       meta.textContent = (n.host || '?') + ':' + (n.port || '?');
       g.appendChild(meta);
 
+      // Count badge (top-right corner). Hidden in Edit mode.
+      const badgeG = document.createElementNS(SVG_NS, 'g');
+      badgeG.setAttribute('class', 'node-badge');
+      const bx = NODE_W / 2 - 4;
+      const by = -NODE_H / 2 + 4;
+      const badgeBg = document.createElementNS(SVG_NS, 'circle');
+      badgeBg.setAttribute('class', 'badge-bg');
+      badgeBg.setAttribute('cx', bx);
+      badgeBg.setAttribute('cy', by);
+      badgeBg.setAttribute('r', 9);
+      const badgeText = document.createElementNS(SVG_NS, 'text');
+      badgeText.setAttribute('class', 'badge-text');
+      badgeText.setAttribute('x', bx);
+      badgeText.setAttribute('y', by + 3);
+      badgeText.textContent = '0';
+      badgeG.appendChild(badgeBg);
+      badgeG.appendChild(badgeText);
+      g.appendChild(badgeG);
+
       g.addEventListener('mousedown', e => onNodeMouseDown(e, k));
       $svg.appendChild(g);
-      nodeIndex.get(k).g = g;
+      const idx = nodeIndex.get(k);
+      idx.g = g;
+      idx.badge = badgeText;
+      idx.badgeG = badgeG;
     }
 
     refreshRaw();
@@ -522,9 +544,10 @@
       load().then(() => startLive());
     } else {
       stopLive();
-      // Reset placeholder list.
       $liveList.innerHTML = '<li class="placeholder">Switch to <strong>Watch</strong> mode to see live executions.</li>';
       $liveMeta.textContent = '';
+      liveLastIds = new Set();
+      resetNodeStats();
     }
   }
 
@@ -537,6 +560,7 @@
 
   let livePollTimer = null;
   let liveLastIds = new Set();   // for "new-since-last-poll" flash
+  let nodeStats = new Map();     // role → { count, lastTs }
 
   function fmtTime(ms) {
     if (!ms) return '';
@@ -553,15 +577,52 @@
     if (!records.length) {
       $liveList.innerHTML = '<li class="placeholder">No executions yet.</li>';
       $liveMeta.textContent = '0 records';
+      resetNodeStats();
       return;
     }
     $liveMeta.textContent = `${records.length} record${records.length === 1 ? '' : 's'}`;
-    const html = [];
+
+    // Detect what's NEW since last poll → drives node/edge flashes.
     const currentIds = new Set();
+    const newRecords = [];
     for (const r of records) {
-      const id = r.file;
-      currentIds.add(id);
-      const isNew = livePollTimer && !liveLastIds.has(id) && liveLastIds.size > 0;
+      currentIds.add(r.file);
+      if (livePollTimer && !liveLastIds.has(r.file) && liveLastIds.size > 0) {
+        newRecords.push(r);
+      }
+    }
+
+    // Aggregate stats per role (count + most-recent ts).
+    nodeStats.clear();
+    for (const r of records) {
+      const role = r.role;
+      const st = nodeStats.get(role) || { count: 0, lastTs: 0 };
+      st.count += 1;
+      const ts = (r.record && r.record.timestamp) || 0;
+      if (ts > st.lastTs) st.lastTs = ts;
+      nodeStats.set(role, st);
+    }
+    syncBadges();
+
+    // Flash nodes + edges for each new record.
+    for (const r of newRecords) {
+      flashNode(r.role);
+      const rec = r.record || {};
+      if (rec.topicOut) {
+        // Emitter — flash every outgoing edge to nodes that consume topicOut.
+        const node = wf && wf.nodes && wf.nodes[r.role];
+        if (node && Array.isArray(node.next)) {
+          for (const tgt of node.next) {
+            flashEdge(r.role, tgt);
+          }
+        }
+      }
+    }
+
+    // Build the row list.
+    const html = [];
+    for (const r of records) {
+      const isNew = livePollTimer && !liveLastIds.has(r.file) && liveLastIds.size > 0;
       const rec = r.record || {};
       const ts = fmtTime(rec.timestamp);
       const arrow = rec.topicOut
@@ -581,12 +642,52 @@
     $liveList.innerHTML = html.join('');
     liveLastIds = currentIds;
 
-    // hover → highlight matching node on the DAG
     $liveList.querySelectorAll('.live-row').forEach(row => {
       const role = row.dataset.role;
       row.addEventListener('mouseenter', () => highlightNode(role, true));
       row.addEventListener('mouseleave', () => highlightNode(role, false));
     });
+  }
+
+  function syncBadges() {
+    for (const [role, entry] of nodeIndex.entries()) {
+      if (!entry || !entry.badgeG) continue;
+      const st = nodeStats.get(role);
+      if (st && st.count > 0) {
+        entry.badge.textContent = st.count > 99 ? '99+' : String(st.count);
+        entry.badgeG.classList.add('on');
+      } else {
+        entry.badge.textContent = '0';
+        entry.badgeG.classList.remove('on');
+      }
+    }
+  }
+
+  function resetNodeStats() {
+    nodeStats.clear();
+    syncBadges();
+  }
+
+  function flashNode(role) {
+    const e = nodeIndex.get(role);
+    if (!e || !e.g) return;
+    // Re-trigger the CSS animation by toggling the class off then on.
+    e.g.classList.remove('flash');
+    void e.g.getBoundingClientRect();
+    e.g.classList.add('flash');
+    setTimeout(() => e.g && e.g.classList.remove('flash'), 1400);
+  }
+
+  function flashEdge(from, to) {
+    const e = nodeIndex.get(from);
+    if (!e) return;
+    for (const line of e.edgesFrom) {
+      if (line.dataset.to !== to) continue;
+      line.classList.remove('flash');
+      void line.getBoundingClientRect();
+      line.classList.add('flash');
+      setTimeout(() => line.classList.remove('flash'), 1400);
+    }
   }
 
   function escapeAttr(s) {
