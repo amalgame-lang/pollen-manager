@@ -1,0 +1,61 @@
+# amalgame.lock — auto-generated, commit me
+
+[[package]]
+name = "crypto"
+git  = "github.com/amalgame-lang/amalgame-crypto"
+tag  = "v0.3.0"
+rev  = "844c2870"
+
+[[package]]
+name = "tls"
+git  = "github.com/amalgame-lang/amalgame-tls"
+tag  = "v0.3.1"
+rev  = "03fd47a9"
+
+[[package]]
+name = "async"
+git  = "github.com/amalgame-lang/amalgame-async"
+tag  = "v0.2.3"
+rev  = "6c5d176c"
+
+[[package]]
+name = "http"
+git  = "github.com/amalgame-lang/amalgame-net-http"
+tag  = "v0.9.6"
+rev  = "4d8e9d69"
+
+[[package]]
+name = "datetime"
+git  = "github.com/amalgame-lang/amalgame-datetime"
+tag  = "v0.1.0"
+rev  = "c6da2c33"
+
+[[package]]
+name = "random"
+git  = "github.com/amalgame-lang/amalgame-random"
+tag  = "v0.1.0"
+rev  = "da4ff0f7"
+
+[[package]]
+name = "logging"
+git  = "github.com/amalgame-lang/amalgame-logging"
+tag  = "v0.1.0"
+rev  = "b0f23a6d"
+
+[[package]]
+name = "redis"
+git  = "github.com/amalgame-lang/amalgame-database-nosql-redis"
+tag  = "v0.2.0"
+rev  = "93104295"
+
+[[package]]
+name = "threading"
+git  = "github.com/amalgame-lang/amalgame-threading"
+tag  = "v0.1.0"
+rev  = "bfb5d018"
+
+[[package]]
+name = "web"
+git  = "github.com/amalgame-lang/amalgame-web"
+tag  = "v0.13.3"
+rev  = "a4ca16b2"

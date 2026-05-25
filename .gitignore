@@ -1,0 +1,15 @@
+# Build artifacts
+/server
+/*.c
+/_routes.am
+/.amalgame-cache/
+
+# Runtime data
+/certs/
+/data/
+/sessions/
+
+# Editor cruft
+*.swp
+*~
+.DS_Store
