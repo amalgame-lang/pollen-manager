@@ -1,0 +1,141 @@
+// app/api/inject.am  →  POST /api/inject
+//
+// Phase 4.5.5 — Manager-driven debug message injection.
+//
+// Body :
+//   {
+//     "host":        "127.0.0.1",
+//     "port":        7902,
+//     "topic":       "sensor.raw",
+//     "version":     1,
+//     "data":        <any JSON value, stringified by the client>,
+//     "breakpoints": ["xformer","sink"]    // optional ; empty = step mode
+//   }
+//
+// Behaviour :
+//   - Auto-generates a session UUID + a fresh messageId.
+//   - mode = "breakpoint" if breakpoints array non-empty,
+//     else "step" (pause at every hop, like the CLI's --debug step).
+//   - Builds the envelope with the debug field, opens a TCP
+//     connection to host:port, sends one MESSAGE\n, drains the
+//     ACK, closes.
+//   - Returns {ok, messageId, session, mode}.
+//
+// The Manager itself becomes the debug publisher — no need for
+// the pollen-node-tcp CLI on the operator's machine.
+
+import Amalgame.Web
+import Amalgame.Formats.Json
+import Amalgame.Net
+import Amalgame.DateTime
+
+public class Page {
+    public static HttpResponse POST(ctx: WebContext) {
+        let body: string = ctx.Body
+        if (String_Length(body) == 0) {
+            return HttpResponse.New()
+                .Status(400)
+                .Header("content-type", "application/json")
+                .Text("{\"error\":\"empty body\"}")
+        }
+        let parser: JsonParser = new JsonParser(body)
+        let root: JsonValue = parser.ParseTopLevel()
+        if (parser.HasFailed()) {
+            let emsg: string = parser.ErrorMsg()
+            return HttpResponse.New()
+                .Status(400)
+                .Header("content-type", "application/json")
+                .Text("{\"error\":\"bad JSON: " + emsg + "\"}")
+        }
+        let hV: JsonValue = root.Get("host")
+        let pV: JsonValue = root.Get("port")
+        let tV: JsonValue = root.Get("topic")
+        let vV: JsonValue = root.Get("version")
+        let dV: JsonValue = root.Get("data")
+        let bV: JsonValue = root.Get("breakpoints")
+        let host: string = hV.AsString()
+        let port: int    = pV.AsInt()
+        let topic: string = tV.AsString()
+        let version: int = vV.AsInt()
+        // The client serializes the data field with JSON.stringify
+        // and the parser turns it back into a JsonValue. We have
+        // to re-serialize via Json.Encode to splice it into the
+        // envelope verbatim.
+        let dataJson: string = Json.Encode(dV)
+
+        if (String_Length(host) == 0 || port <= 0 || String_Length(topic) == 0) {
+            return HttpResponse.New()
+                .Status(400)
+                .Header("content-type", "application/json")
+                .Text("{\"error\":\"missing host/port/topic\"}")
+        }
+
+        // Breakpoints array → JSON shape expected by Pollen.
+        var bpsArr: string = "[]"
+        var hasBp: bool = false
+        if (bV.IsArray()) {
+            let bps: List<JsonValue> = bV.AsArray()
+            let n: int = bps.Count()
+            if (n > 0) {
+                hasBp = true
+                var inner: string = ""
+                for i in 0..n {
+                    let r: string = bps.Get(i).AsString()
+                    if (String_Length(r) == 0) { continue }
+                    if (String_Length(inner) > 0) { inner = inner + "," }
+                    inner = inner + "{\"role\":\"" + Json.EscapeString(r) + "\"}"
+                }
+                bpsArr = "[" + inner + "]"
+            }
+        }
+
+        var mode: string = "step"
+        if (hasBp) { mode = "breakpoint" }
+
+        let mid:     string = Program.GenUuid()
+        let session: string = Program.GenUuid()
+        let nowNs:   int = DateTime.NowNanos()
+        let nowMs:   int = nowNs / 1000000
+
+        // Manager address for the debug callback. Defaults to
+        // 127.0.0.1:3001 (where our debug bridge listens). Override
+        // via DEBUG_MANAGER env so a Pollen node on another host
+        // can phone home.
+        var manager: string = Env_Get("DEBUG_MANAGER")
+        if (String_Length(manager) == 0) { manager = "127.0.0.1:3001" }
+
+        let debugJson: string = "{\"session\":\"" + session + "\"," +
+            "\"mode\":\"" + mode + "\"," +
+            "\"manager\":\"" + manager + "\"," +
+            "\"breakpoints\":" + bpsArr + "," +
+            "\"hit_bp\":false}"
+
+        let envelope: string = "{\"messageId\":\"" + mid + "\"," +
+            "\"type\":\"MESSAGE\"," +
+            "\"topic\":{\"uuid\":\"" + topic + "\",\"version\":" + String_FromInt(version) + "}," +
+            "\"data\":" + dataJson + "," +
+            "\"timestamp\":" + String_FromInt(nowMs) + "," +
+            "\"debug\":" + debugJson + "}"
+
+        // TCP : connect → send line → drain one ACK line → close.
+        let cli = TcpClient_Connect(host, port)
+        if (!cli.Connected) {
+            return HttpResponse.New()
+                .Status(502)
+                .Header("content-type", "application/json")
+                .Text("{\"error\":\"connect failed to " + host + ":" + String_FromInt(port) + "\"}")
+        }
+        TcpClient_Send(cli, envelope + "\n")
+        // The target node ACKs upstream BEFORE phoning home on
+        // a debug pause, so this recv returns quickly (~ms) and
+        // doesn't block the HTTP response.
+        let _ackBuf: string = TcpClient_Receive(cli, 4096)
+        TcpClient_Close(cli)
+
+        return HttpResponse.New()
+            .Header("content-type", "application/json")
+            .Text("{\"ok\":true,\"messageId\":\"" + mid +
+                  "\",\"session\":\"" + session +
+                  "\",\"mode\":\"" + mode + "\"}")
+    }
+}
