@@ -546,8 +546,10 @@
       liveLastIds = new Set();
       lastSeenTs = 0;
       load().then(() => startLive());
+      startDebugPoll();
     } else {
       stopLive();
+      stopDebugPoll();
       $liveList.innerHTML = '<li class="placeholder">Switch to <strong>Watch</strong> mode to see live executions.</li>';
       $liveMeta.textContent = '';
       liveRecords = [];
@@ -750,6 +752,94 @@
   function stopLive() {
     if (livePollTimer) clearInterval(livePollTimer);
     livePollTimer = null;
+  }
+
+  // ── Debug bridge poll (Phase 4.5.3) ─────────────────────────
+  // Polls /api/debug/pauses every 1s when in Watch mode. When
+  // a pause arrives, the top banner becomes visible with Step /
+  // Continue / Cancel controls. Multiple pauses (fan-out)
+  // queue up — we act on the FIRST one for now, polished in 4.5.5.
+  const $dbgBar       = document.getElementById('debug-bar');
+  const $dbgInfo      = document.getElementById('debug-bar-info');
+  const $dbgStepOver  = document.getElementById('dbg-step-over');
+  const $dbgStepInto  = document.getElementById('dbg-step-into');
+  const $dbgContinue  = document.getElementById('dbg-continue');
+  const $dbgCancel    = document.getElementById('dbg-cancel');
+  let dbgPollTimer = null;
+  let dbgActive = null;  // { session, role, role badge, ... }
+
+  async function pollDebug() {
+    try {
+      const r = await fetch('/api/debug/pauses');
+      if (!r.ok) return;
+      const list = await r.json();
+      if (!list.length) {
+        if (dbgActive) {
+          dbgActive = null;
+          $dbgBar.hidden = true;
+        }
+        return;
+      }
+      const p = list[0];
+      const env = p.raw && p.raw.envelope || {};
+      const mid = env.messageId ? env.messageId.slice(0, 8) : '?';
+      const topicIn = (env.topic && env.topic.uuid) || '?';
+      const more = list.length > 1 ? ` (+${list.length - 1} more)` : '';
+      $dbgInfo.textContent = `${p.role} · session ${p.session} · mid ${mid} · topic ${topicIn}${more}`;
+      $dbgBar.hidden = false;
+      dbgActive = { session: p.session, role: p.role };
+    } catch (e) { /* silent retry */ }
+  }
+
+  async function sendDebugCmd(cmd) {
+    if (!dbgActive) return;
+    const { session, role } = dbgActive;
+    try {
+      const r = await fetch('/api/debug/cmd', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ session, role, cmd }),
+      });
+      const reply = await r.json();
+      if (!r.ok) {
+        setStatus(`debug cmd failed: ${reply.error || r.status}`, 'error');
+        return;
+      }
+      setStatus(`debug → ${cmd.replace('DEBUG_', '')} (${role})`, 'ok');
+      // The active pause is gone — refresh immediately.
+      dbgActive = null;
+      $dbgBar.hidden = true;
+      pollDebug();
+    } catch (e) {
+      setStatus('debug cmd error: ' + e.message, 'error');
+    }
+  }
+
+  $dbgStepOver.addEventListener('click', () => sendDebugCmd('DEBUG_STEP_OVER'));
+  $dbgStepInto.addEventListener('click', () => sendDebugCmd('DEBUG_STEP_INTO'));
+  $dbgContinue.addEventListener('click', () => sendDebugCmd('DEBUG_CONTINUE'));
+  $dbgCancel  .addEventListener('click', () => sendDebugCmd('DEBUG_CANCEL'));
+
+  // Keyboard shortcuts (Phase 4.5.5 will refine when not in
+  // an input). For now, only fire when a pause is active.
+  window.addEventListener('keydown', e => {
+    if (!dbgActive) return;
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    if (e.key === 'F5')          { e.preventDefault(); sendDebugCmd('DEBUG_CONTINUE');  }
+    else if (e.key === 'F10')    { e.preventDefault(); sendDebugCmd('DEBUG_STEP_OVER'); }
+    else if (e.key === 'F11')    { e.preventDefault(); sendDebugCmd('DEBUG_STEP_INTO'); }
+    else if (e.key === 'Escape') { e.preventDefault(); sendDebugCmd('DEBUG_CANCEL');    }
+  });
+
+  function startDebugPoll() {
+    pollDebug();
+    dbgPollTimer = setInterval(pollDebug, 1000);
+  }
+  function stopDebugPoll() {
+    if (dbgPollTimer) clearInterval(dbgPollTimer);
+    dbgPollTimer = null;
+    dbgActive = null;
+    $dbgBar.hidden = true;
   }
 
   // Polling is driven entirely by the Edit/Watch mode toggle —

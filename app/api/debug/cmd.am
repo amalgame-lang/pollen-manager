@@ -1,0 +1,70 @@
+// app/api/debug/cmd.am  →  POST /api/debug/cmd
+//
+// Body: {"session":"<sid>","role":"<role>","cmd":"DEBUG_STEP_INTO"}
+// Effect: looks up the matching paused Pollen node, writes the
+// command back through its open TCP socket, closes + frees the
+// registry slot. Returns {ok:true} on success.
+//
+// Phase 4.5.3 — the only side of the debug bridge that the browser
+// drives explicitly. Keyboard shortcuts F5 / F10 / F11 (Phase
+// 4.5.5) all funnel through here.
+
+import Amalgame.Web
+import Amalgame.Formats.Json
+
+public class Page {
+    public static HttpResponse POST(ctx: WebContext) {
+        let body: string = ctx.Body
+        if (String_Length(body) == 0) {
+            return HttpResponse.New()
+                .Status(400)
+                .Header("content-type", "application/json")
+                .Text("{\"error\":\"empty body\"}")
+        }
+        let parser: JsonParser = new JsonParser(body)
+        let root: JsonValue = parser.ParseTopLevel()
+        if (parser.HasFailed()) {
+            let emsg: string = parser.ErrorMsg()
+            return HttpResponse.New()
+                .Status(400)
+                .Header("content-type", "application/json")
+                .Text("{\"error\":\"invalid JSON: " + emsg + "\"}")
+        }
+        let sV: JsonValue = root.Get("session")
+        let rV: JsonValue = root.Get("role")
+        let cV: JsonValue = root.Get("cmd")
+        let session: string = sV.AsString()
+        let role:    string = rV.AsString()
+        let cmd:     string = cV.AsString()
+        if (String_Length(session) == 0 || String_Length(role) == 0 || String_Length(cmd) == 0) {
+            return HttpResponse.New()
+                .Status(400)
+                .Header("content-type", "application/json")
+                .Text("{\"error\":\"missing session/role/cmd\"}")
+        }
+        // Whitelist of valid commands — refuse anything else so a
+        // typo doesn't get blindly forwarded to the Pollen node.
+        let valid: bool = (cmd == "DEBUG_STEP_OVER" ||
+                           cmd == "DEBUG_STEP_INTO" ||
+                           cmd == "DEBUG_STEP" ||
+                           cmd == "DEBUG_CONTINUE" ||
+                           cmd == "DEBUG_CANCEL" ||
+                           cmd == "DEBUG_MUTATE")
+        if (!valid) {
+            return HttpResponse.New()
+                .Status(400)
+                .Header("content-type", "application/json")
+                .Text("{\"error\":\"unknown cmd " + cmd + "\"}")
+        }
+        let ok: bool = DebugServer.SendCommand(session, role, cmd)
+        if (!ok) {
+            return HttpResponse.New()
+                .Status(404)
+                .Header("content-type", "application/json")
+                .Text("{\"error\":\"no paused node for that session+role\"}")
+        }
+        return HttpResponse.New()
+            .Header("content-type", "application/json")
+            .Text("{\"ok\":true,\"session\":\"" + session + "\",\"role\":\"" + role + "\",\"cmd\":\"" + cmd + "\"}")
+    }
+}

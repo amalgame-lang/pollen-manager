@@ -24,6 +24,19 @@ public class Page {
             "<button id=\"mode-watch\" class=\"mode-btn\"        role=\"tab\" aria-selected=\"false\">Watch</button>" +
             "</div>" +
             "</header>" +
+            // ── Debug bridge banner (Phase 4.5.3) ──
+            // Hidden by default, shown when /api/debug/pauses
+            // returns a non-empty list. Polished in 4.5.5.
+            "<div id=\"debug-bar\" hidden>" +
+            "<span class=\"label\">⏸ Debug paused</span>" +
+            "<span id=\"debug-bar-info\" class=\"info\"></span>" +
+            "<div class=\"actions\">" +
+            "<button id=\"dbg-step-over\" class=\"primary\" title=\"F10\">⇣ Step Over</button>" +
+            "<button id=\"dbg-step-into\" title=\"F11\">⇩ Step Into</button>" +
+            "<button id=\"dbg-continue\" title=\"F5\">▶ Continue</button>" +
+            "<button id=\"dbg-cancel\" class=\"danger\" title=\"Esc\">✕ Cancel</button>" +
+            "</div>" +
+            "</div>" +
             "<main>" +
             "<section id=\"graph\">" +
             "<div class=\"section-head\">" +

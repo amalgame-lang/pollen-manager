@@ -1,0 +1,15 @@
+// app/api/debug/pauses.am  →  GET /api/debug/pauses
+//
+// Returns the current registry of paused Pollen nodes (Phase 4.5.3
+// debug bridge). Polled by the browser to drive the Debug panel UI.
+
+import Amalgame.Web
+
+public class Page {
+    public static HttpResponse GET(ctx: WebContext) {
+        let body: string = DebugServer.PausesJson()
+        return HttpResponse.New()
+            .Header("content-type", "application/json")
+            .Text(body)
+    }
+}

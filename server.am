@@ -47,6 +47,21 @@ public class Program {
         }
         Threading.ThreadSpawn(gcLoop, 0)
 
+        // ── Phase 4.5.3 — debug bridge listener on :3001 ──
+        // Pollen nodes pausing on a debug breakpoint connect here
+        // and block on recv for a step command. Lives in a separate
+        // thread (DebugServer.StartListener) so the main HTTP serve
+        // on :3000 stays single-threaded as before.
+        var debugPort: int = 3001
+        let debugPortEnv: string = Env_Get("DEBUG_PORT")
+        if (String_Length(debugPortEnv) > 0) {
+            let p: int = String_ToInt(debugPortEnv)
+            if (p > 0) { debugPort = p }
+        }
+        DebugServer.StartListener(debugPort)
+        Console.WriteLine("  debug:   listening on TCP :" + String_FromInt(debugPort) + " (Pollen DEBUG_PAUSE bridge)")
+        Console.Flush()
+
         return app.Serve(3000)
     }
 
