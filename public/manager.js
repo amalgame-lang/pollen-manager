@@ -468,5 +468,102 @@
     if (dirty) { e.preventDefault(); e.returnValue = ''; }
   });
 
+  // ── Live executions panel (Phase 4.2) ───────────────────────
+  const $liveList   = document.getElementById('live-list');
+  const $liveMeta   = document.getElementById('live-meta');
+  const $liveToggle = document.getElementById('live-toggle');
+
+  let livePollTimer = null;
+  let liveLastIds = new Set();   // for "new-since-last-poll" flash
+
+  function fmtTime(ms) {
+    if (!ms) return '';
+    const d = new Date(ms);
+    return d.toLocaleTimeString('en-GB', { hour12: false });
+  }
+
+  function shortId(s) {
+    if (!s || s.length < 8) return s || '';
+    return s.slice(0, 8);
+  }
+
+  function renderLive(records) {
+    if (!records.length) {
+      $liveList.innerHTML = '<li class="placeholder">No executions yet.</li>';
+      $liveMeta.textContent = '0 records';
+      return;
+    }
+    $liveMeta.textContent = `${records.length} record${records.length === 1 ? '' : 's'}`;
+    const html = [];
+    const currentIds = new Set();
+    for (const r of records) {
+      const id = r.file;
+      currentIds.add(id);
+      const isNew = livePollTimer && !liveLastIds.has(id) && liveLastIds.size > 0;
+      const rec = r.record || {};
+      const ts = fmtTime(rec.timestamp);
+      const arrow = rec.topicOut
+        ? `${rec.topicIn || '∅'} → ${rec.topicOut}`
+        : `${rec.topicIn || '∅'} → terminal`;
+      const term = !rec.topicOut;
+      html.push(
+        `<li class="live-row${isNew ? ' flash' : ''}${term ? ' terminal' : ''}" ` +
+        `data-role="${escapeAttr(r.role)}" data-mid="${escapeAttr(r.messageId)}">` +
+          `<span class="t">${ts}</span>` +
+          `<span class="role">${escapeAttr(r.role)}</span>` +
+          `<span class="mid">${shortId(r.messageId)}</span>` +
+          `<span class="topics">${escapeAttr(arrow)}</span>` +
+        `</li>`
+      );
+    }
+    $liveList.innerHTML = html.join('');
+    liveLastIds = currentIds;
+
+    // hover → highlight matching node on the DAG
+    $liveList.querySelectorAll('.live-row').forEach(row => {
+      const role = row.dataset.role;
+      row.addEventListener('mouseenter', () => highlightNode(role, true));
+      row.addEventListener('mouseleave', () => highlightNode(role, false));
+    });
+  }
+
+  function escapeAttr(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c => (
+      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+    ));
+  }
+
+  function highlightNode(name, on) {
+    const e = nodeIndex.get(name);
+    if (!e || !e.g) return;
+    e.g.classList.toggle('flash-hi', on);
+  }
+
+  async function pollLive() {
+    try {
+      const r = await fetch('/api/executions');
+      if (!r.ok) return;
+      const records = await r.json();
+      renderLive(records);
+    } catch (e) {
+      // network glitch, silent retry next tick
+    }
+  }
+
+  function startLive() {
+    pollLive();
+    livePollTimer = setInterval(pollLive, 2000);
+  }
+  function stopLive() {
+    if (livePollTimer) clearInterval(livePollTimer);
+    livePollTimer = null;
+  }
+
+  $liveToggle.addEventListener('change', () => {
+    if ($liveToggle.checked) startLive(); else stopLive();
+  });
+
+  if ($liveToggle.checked) startLive();
+
   load();
 })();
