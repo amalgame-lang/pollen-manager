@@ -53,11 +53,20 @@ header {
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 12px 28px;
+  padding: 10px 28px;
   border-bottom: 1px solid var(--line-low);
   background: var(--bg-0);
 }
 header .subtitle { flex: 1; }
+header .logo {
+  height: 36px;
+  width: auto;
+  display: block;
+  /* Lift the multi-color mark slightly off the dark surround so
+   * it doesn't look pasted-on. The subtle accent halo echoes
+   * the paused-node glow we use elsewhere. */
+  filter: drop-shadow(0 0 6px rgba(245, 180, 0, 0.18));
+}
 
 /* ── Mode switch (Edit / Watch) ───────────────────────────── */
 .mode-switch {
@@ -330,11 +339,6 @@ header h1 {
   font-size: 14px;
   font-weight: 600;
   letter-spacing: -0.01em;
-}
-header h1::before {
-  content: "·";
-  color: var(--accent);
-  margin-right: 6px;
 }
 header .subtitle {
   margin: 0;

@@ -179,7 +179,13 @@ namespace App
         pthread_detach(tid);
     }
 
-    /* JSON serialization of the registry. */
+    /* JSON serialization of the registry. Also prunes stale
+     * entries inline (Phase 4.5.8) : Pollen's recv timeout is
+     * 60s, so any entry older than 90s is by definition dead —
+     * the fd has been closed on the peer end + the worker thread
+     * has moved on. We free the slot so a fresh pause can take
+     * it. */
+    #define DBG_STALE_AFTER_MS 90000
     static code_string _dbg_pauses_json_c(void) {
         char* buf = (char*) GC_MALLOC_ATOMIC(64 * 1024);
         int o = 0;
@@ -187,9 +193,19 @@ namespace App
         pthread_mutex_lock(&_dbg_pauses_mu);
         int64_t now = _dbg_now_ms();
         int first = 1;
+        int pruned = 0;
         for (int i = 0; i < DBG_MAX_PAUSES; i++) {
             if (!_dbg_pauses[i].in_use) continue;
             dbg_pause_t* p = &_dbg_pauses[i];
+            if (now - p->recv_ms > DBG_STALE_AFTER_MS) {
+                /* Stale : close the fd (best-effort, may EBADF
+                 * if peer already closed) and free the slot. */
+                if (p->fd >= 0) close(p->fd);
+                p->in_use = 0;
+                p->fd = -1;
+                pruned++;
+                continue;
+            }
             o += snprintf(buf + o, 65536 - o,
                 "%s{\"slot\":%d,\"session\":\"%s\",\"role\":\"%s\",\"recvMs\":%lld,\"ageMs\":%lld,\"raw\":%.*s}",
                 first ? "" : ",",
@@ -200,6 +216,11 @@ namespace App
             first = 0;
         }
         pthread_mutex_unlock(&_dbg_pauses_mu);
+        if (pruned > 0) {
+            fprintf(stdout, "debug-bridge: pruned %d stale pause(s) (older than %d ms)\n",
+                pruned, DBG_STALE_AFTER_MS);
+            fflush(stdout);
+        }
         o += snprintf(buf + o, 65536 - o, "]");
         return (code_string) buf;
     }

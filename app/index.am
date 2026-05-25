@@ -17,6 +17,7 @@ public class Page {
             "<link rel=\"stylesheet\" href=\"/style.css\">" +
             "</head><body>" +
             "<header>" +
+            "<img src=\"/images/pollen-mark.svg\" alt=\"Pollen\" class=\"logo\">" +
             "<h1>Pollen Manager</h1>" +
             "<p class=\"subtitle\">workflow.json · v0.1.0-dev</p>" +
             "<div class=\"mode-switch\" role=\"tablist\">" +
