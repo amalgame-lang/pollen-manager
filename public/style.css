@@ -84,6 +84,50 @@ header .subtitle { flex: 1; }
 body[data-mode="watch"] #dag .node-group { cursor: default; }
 body[data-mode="watch"] #inspector-form input { color: var(--fg-muted); }
 
+/* ── Debug toggle (next to Edit/Watch in header) ──────────── */
+.debug-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 4px;
+  padding: 4px 10px;
+  background: var(--bg-1);
+  border: 1px solid var(--line-mid);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--fg-muted);
+  cursor: pointer;
+  user-select: none;
+  transition: background 80ms, border-color 80ms, color 80ms;
+}
+.debug-toggle:hover { background: var(--bg-2); color: var(--fg); }
+.debug-toggle input { accent-color: var(--accent); cursor: pointer; }
+.debug-toggle:has(input:checked) {
+  background: rgba(245, 180, 0, 0.15);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Paused node on the DAG : persistent glow until step/continue */
+#dag .node-group.paused .node-rect {
+  fill: var(--bg-3);
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  filter: drop-shadow(0 0 10px var(--accent))
+          drop-shadow(0 0 3px var(--accent-glow));
+}
+#dag .node-group.paused .node-label { fill: var(--accent); }
+#dag .node-group.paused .node-rect {
+  animation: paused-pulse 1.6s ease-in-out infinite;
+}
+@keyframes paused-pulse {
+  0%, 100% { filter: drop-shadow(0 0 6px var(--accent)); }
+  50%      { filter: drop-shadow(0 0 14px var(--accent))
+                     drop-shadow(0 0 4px var(--accent-glow)); }
+}
+
 /* ── Debug bridge banner (Phase 4.5.3) ────────────────────── */
 /* Explicit hidden override — #debug-bar's ID-selector display:flex
  * outweighs the UA stylesheet's [hidden]{display:none}, so we

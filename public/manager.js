@@ -538,18 +538,17 @@
     });
 
     if (mode === 'watch') {
-      // Fresh state from disk + start polling. Reset all live
-      // accumulators so the new session starts clean.
+      // Fresh state from disk + start live executions polling.
+      // Debug interception is controlled separately by the
+      // #debug-toggle checkbox — Watch is observation-only.
       selected = null;
       stopLive();
       liveRecords = [];
       liveLastIds = new Set();
       lastSeenTs = 0;
       load().then(() => startLive());
-      startDebugPoll();
     } else {
       stopLive();
-      stopDebugPoll();
       $liveList.innerHTML = '<li class="placeholder">Switch to <strong>Watch</strong> mode to see live executions.</li>';
       $liveMeta.textContent = '';
       liveRecords = [];
@@ -754,19 +753,43 @@
     livePollTimer = null;
   }
 
-  // ── Debug bridge poll (Phase 4.5.3) ─────────────────────────
-  // Polls /api/debug/pauses every 1s when in Watch mode. When
-  // a pause arrives, the top banner becomes visible with Step /
-  // Continue / Cancel controls. Multiple pauses (fan-out)
-  // queue up — we act on the FIRST one for now, polished in 4.5.5.
+  // ── Debug bridge poll (Phase 4.5.3, refined 4.5.3.1) ────────
+  // The Debug toggle in the header is the explicit opt-in :
+  //   off → no polling of /api/debug/pauses, the bar stays hidden,
+  //         Pollen DEBUG_PAUSE entries pile up in the manager
+  //         registry until the 60s recv timeout on the node side
+  //         (where they get CANCEL'd). Safe in prod : nothing the
+  //         operator does in Watch can step / cancel a real flow.
+  //   on  → polling 1Hz, bar shows the first active pause, Step
+  //         / Continue / Cancel + F-keys live. Plus the
+  //         currently paused role is glowed on the DAG.
+  // Independent of the Edit/Watch mode — debug can be intercepted
+  // in either, the toggle is the only switch.
   const $dbgBar       = document.getElementById('debug-bar');
   const $dbgInfo      = document.getElementById('debug-bar-info');
   const $dbgStepOver  = document.getElementById('dbg-step-over');
   const $dbgStepInto  = document.getElementById('dbg-step-into');
   const $dbgContinue  = document.getElementById('dbg-continue');
   const $dbgCancel    = document.getElementById('dbg-cancel');
+  const $dbgToggle    = document.getElementById('debug-toggle');
   let dbgPollTimer = null;
-  let dbgActive = null;  // { session, role, role badge, ... }
+  let dbgActive = null;  // { session, role } of the currently shown pause
+  let dbgPausedRole = null;  // role with the .paused class on DAG, for cleanup
+
+  function clearPausedHighlight() {
+    if (!dbgPausedRole) return;
+    const e = nodeIndex.get(dbgPausedRole);
+    if (e && e.g) e.g.classList.remove('paused');
+    dbgPausedRole = null;
+  }
+
+  function setPausedHighlight(role) {
+    if (dbgPausedRole === role) return;
+    clearPausedHighlight();
+    const e = nodeIndex.get(role);
+    if (e && e.g) e.g.classList.add('paused');
+    dbgPausedRole = role;
+  }
 
   async function pollDebug() {
     try {
@@ -777,6 +800,7 @@
         if (dbgActive) {
           dbgActive = null;
           $dbgBar.hidden = true;
+          clearPausedHighlight();
         }
         return;
       }
@@ -788,6 +812,7 @@
       $dbgInfo.textContent = `${p.role} · session ${p.session} · mid ${mid} · topic ${topicIn}${more}`;
       $dbgBar.hidden = false;
       dbgActive = { session: p.session, role: p.role };
+      setPausedHighlight(p.role);
     } catch (e) { /* silent retry */ }
   }
 
@@ -809,6 +834,7 @@
       // The active pause is gone — refresh immediately.
       dbgActive = null;
       $dbgBar.hidden = true;
+      clearPausedHighlight();
       pollDebug();
     } catch (e) {
       setStatus('debug cmd error: ' + e.message, 'error');
@@ -832,6 +858,7 @@
   });
 
   function startDebugPoll() {
+    if (dbgPollTimer) return;
     pollDebug();
     dbgPollTimer = setInterval(pollDebug, 1000);
   }
@@ -840,7 +867,13 @@
     dbgPollTimer = null;
     dbgActive = null;
     $dbgBar.hidden = true;
+    clearPausedHighlight();
   }
+
+  $dbgToggle.addEventListener('change', () => {
+    if ($dbgToggle.checked) startDebugPoll();
+    else stopDebugPoll();
+  });
 
   // Polling is driven entirely by the Edit/Watch mode toggle —
   // started in setMode('watch'), stopped in setMode('edit').

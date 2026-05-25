@@ -23,6 +23,10 @@ public class Page {
             "<button id=\"mode-edit\"  class=\"mode-btn active\" role=\"tab\" aria-selected=\"true\">Edit</button>" +
             "<button id=\"mode-watch\" class=\"mode-btn\"        role=\"tab\" aria-selected=\"false\">Watch</button>" +
             "</div>" +
+            "<label class=\"debug-toggle\" title=\"Intercept debug pauses (DEBUG_PAUSE messages from Pollen nodes).&#10;Off = safe in prod, even when --debug publishers exist.\">" +
+            "<input id=\"debug-toggle\" type=\"checkbox\">" +
+            "<span class=\"debug-toggle-label\">⏸ Debug</span>" +
+            "</label>" +
             "</header>" +
             // ── Debug bridge banner (Phase 4.5.3) ──
             // Hidden by default, shown when /api/debug/pauses
