@@ -1,0 +1,252 @@
+// app/_lib/debug_server.am — Phase 4.5.3 debug bridge.
+//
+// The mosaic routes generator inlines every .am under app/ into
+// _routes.am but only wires HTTP verbs from `class Page` files.
+// Our class is `DebugServer` so the file is included verbatim
+// without route registration.
+//
+// Module-level @c block declares the C registry + accept loop +
+// helpers. Class method bodies just call into them with @c
+// inline. (Class-level @c blocks would be silently dropped by
+// amc — declarations must be at file scope.)
+
+namespace App
+
+@c {
+    #include <sys/socket.h>
+    #include <sys/types.h>
+    #include <netinet/in.h>
+    #include <arpa/inet.h>
+    #include <unistd.h>
+    #include <string.h>
+    #include <stdio.h>
+    #include <stdint.h>
+    #include <stdlib.h>
+    #include <pthread.h>
+    #include <time.h>
+    #include <errno.h>
+    #include <sys/time.h>
+
+    /* Registry of active pauses. Fixed-size — realistic debug
+     * sessions never have more than a handful of paused hops in
+     * flight (a fan-out at K=8 max). */
+    #define DBG_MAX_PAUSES   32
+    #define DBG_SESSION_MAX  64
+    #define DBG_ROLE_MAX     64
+    #define DBG_ENV_MAX      4096
+
+    typedef struct {
+        int     in_use;
+        int     fd;
+        char    session[DBG_SESSION_MAX];
+        char    role[DBG_ROLE_MAX];
+        char    envelope[DBG_ENV_MAX];
+        int     envelope_len;
+        int64_t recv_ms;
+    } dbg_pause_t;
+
+    static dbg_pause_t        _dbg_pauses[DBG_MAX_PAUSES];
+    static pthread_mutex_t    _dbg_pauses_mu = PTHREAD_MUTEX_INITIALIZER;
+
+    static int64_t _dbg_now_ms(void) {
+        struct timespec ts;
+        clock_gettime(CLOCK_REALTIME, &ts);
+        return (int64_t) ts.tv_sec * 1000 + (int64_t) ts.tv_nsec / 1000000;
+    }
+
+    static const char* _dbg_find(const char* hay, int hlen,
+                                  const char* needle, int nlen) {
+        if (nlen == 0 || hlen < nlen) return NULL;
+        for (int i = 0; i <= hlen - nlen; i++) {
+            if (memcmp(hay + i, needle, nlen) == 0) return hay + i;
+        }
+        return NULL;
+    }
+
+    /* Extract a `"key":"value"` value into `out` (NUL-terminated).
+     * Returns the value length, or -1 if not found. */
+    static int _dbg_extract_str_field(const char* buf, int blen,
+                                       const char* key, int klen,
+                                       char* out, int out_cap) {
+        const char* k = _dbg_find(buf, blen, key, klen);
+        if (!k) return -1;
+        const char* v = k + klen;
+        const char* q = memchr(v, '"', blen - (int)(v - buf));
+        if (!q) return -1;
+        int vlen = (int)(q - v);
+        if (vlen >= out_cap) vlen = out_cap - 1;
+        memcpy(out, v, vlen);
+        out[vlen] = 0;
+        return vlen;
+    }
+
+    /* Handle one accepted connection : read one line, parse, add
+     * to registry. Keep the socket open if added — the paused
+     * node is waiting on its end. Close + drop on parse error. */
+    static void _dbg_handle_conn(int fd) {
+        char buf[DBG_ENV_MAX];
+        int got = 0;
+        struct timeval tv = { 5, 0 };
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+        while (got < (int) sizeof(buf) - 1) {
+            ssize_t r = recv(fd, buf + got, sizeof(buf) - 1 - got, 0);
+            if (r <= 0) break;
+            got += r;
+            if (memchr(buf, '\n', got)) break;
+        }
+        if (got <= 0) { close(fd); return; }
+        buf[got] = 0;
+
+        if (!_dbg_find(buf, got, "\"DEBUG_PAUSE\"", 13)) {
+            close(fd); return;
+        }
+
+        char session[DBG_SESSION_MAX] = {0};
+        char role[DBG_ROLE_MAX] = {0};
+        int slen = _dbg_extract_str_field(buf, got,
+            "\"session\":\"", 11, session, sizeof(session));
+        int rlen = _dbg_extract_str_field(buf, got,
+            "\"role\":\"", 8, role, sizeof(role));
+        if (slen <= 0 || rlen <= 0) { close(fd); return; }
+
+        pthread_mutex_lock(&_dbg_pauses_mu);
+        int slot = -1;
+        for (int i = 0; i < DBG_MAX_PAUSES; i++) {
+            if (!_dbg_pauses[i].in_use) { slot = i; break; }
+        }
+        if (slot < 0) {
+            pthread_mutex_unlock(&_dbg_pauses_mu);
+            close(fd);
+            return;
+        }
+        dbg_pause_t* p = &_dbg_pauses[slot];
+        p->in_use = 1;
+        p->fd = fd;
+        strncpy(p->session, session, sizeof(p->session) - 1);
+        p->session[sizeof(p->session) - 1] = 0;
+        strncpy(p->role, role, sizeof(p->role) - 1);
+        p->role[sizeof(p->role) - 1] = 0;
+        int copy = got > DBG_ENV_MAX - 1 ? DBG_ENV_MAX - 1 : got;
+        memcpy(p->envelope, buf, copy);
+        p->envelope[copy] = 0;
+        p->envelope_len = copy;
+        p->recv_ms = _dbg_now_ms();
+        pthread_mutex_unlock(&_dbg_pauses_mu);
+
+        fprintf(stdout, "debug-bridge: pause registered slot=%d session=%s role=%s (%d bytes)\n",
+            slot, session, role, copy);
+        fflush(stdout);
+    }
+
+    static void* _dbg_accept_loop(void* arg) {
+        int port = (int)(intptr_t) arg;
+        int srv = socket(AF_INET, SOCK_STREAM, 0);
+        if (srv < 0) return NULL;
+        int yes = 1;
+        setsockopt(srv, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
+        struct sockaddr_in addr;
+        memset(&addr, 0, sizeof(addr));
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons((uint16_t) port);
+        addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        if (bind(srv, (struct sockaddr*) &addr, sizeof(addr)) < 0) {
+            fprintf(stderr, "debug-bridge: bind(:%d) failed: %s\n",
+                port, strerror(errno));
+            close(srv);
+            return NULL;
+        }
+        if (listen(srv, 16) < 0) { close(srv); return NULL; }
+        fprintf(stdout, "debug-bridge: listening on TCP :%d\n", port);
+        fflush(stdout);
+        while (1) {
+            struct sockaddr_in peer;
+            socklen_t plen = sizeof(peer);
+            int fd = accept(srv, (struct sockaddr*) &peer, &plen);
+            if (fd < 0) {
+                if (errno == EINTR) continue;
+                break;
+            }
+            _dbg_handle_conn(fd);
+        }
+        close(srv);
+        return NULL;
+    }
+
+    static void _dbg_start_listener_c(int port) {
+        pthread_t tid;
+        pthread_create(&tid, NULL, _dbg_accept_loop,
+            (void*)(intptr_t) port);
+        pthread_detach(tid);
+    }
+
+    /* JSON serialization of the registry. */
+    static code_string _dbg_pauses_json_c(void) {
+        char* buf = (char*) GC_MALLOC_ATOMIC(64 * 1024);
+        int o = 0;
+        o += snprintf(buf + o, 65536 - o, "[");
+        pthread_mutex_lock(&_dbg_pauses_mu);
+        int64_t now = _dbg_now_ms();
+        int first = 1;
+        for (int i = 0; i < DBG_MAX_PAUSES; i++) {
+            if (!_dbg_pauses[i].in_use) continue;
+            dbg_pause_t* p = &_dbg_pauses[i];
+            o += snprintf(buf + o, 65536 - o,
+                "%s{\"slot\":%d,\"session\":\"%s\",\"role\":\"%s\",\"recvMs\":%lld,\"ageMs\":%lld,\"raw\":%.*s}",
+                first ? "" : ",",
+                i, p->session, p->role,
+                (long long) p->recv_ms,
+                (long long) (now - p->recv_ms),
+                p->envelope_len, p->envelope);
+            first = 0;
+        }
+        pthread_mutex_unlock(&_dbg_pauses_mu);
+        o += snprintf(buf + o, 65536 - o, "]");
+        return (code_string) buf;
+    }
+
+    /* Look up (session, role), send reply, close fd, free slot. */
+    static int _dbg_send_cmd_c(code_string session,
+                                 code_string role,
+                                 code_string cmd) {
+        int found = 0;
+        pthread_mutex_lock(&_dbg_pauses_mu);
+        for (int i = 0; i < DBG_MAX_PAUSES; i++) {
+            if (!_dbg_pauses[i].in_use) continue;
+            if (strcmp(_dbg_pauses[i].session, session) != 0) continue;
+            if (strcmp(_dbg_pauses[i].role, role) != 0) continue;
+            dbg_pause_t* p = &_dbg_pauses[i];
+            char reply[128];
+            int n = snprintf(reply, sizeof(reply),
+                "{\"type\":\"%s\"}\n", cmd);
+            send(p->fd, reply, (size_t) n, MSG_NOSIGNAL);
+            close(p->fd);
+            p->in_use = 0;
+            p->fd = -1;
+            found = 1;
+            fprintf(stdout, "debug-bridge: sent %s to session=%s role=%s\n",
+                cmd, session, role);
+            fflush(stdout);
+            break;
+        }
+        pthread_mutex_unlock(&_dbg_pauses_mu);
+        return found;
+    }
+}
+
+public class DebugServer {
+    public static void StartListener(int port) {
+        @c { _dbg_start_listener_c((int) port); }
+    }
+
+    public static string PausesJson() {
+        var out: string = ""
+        @c { out = _dbg_pauses_json_c(); }
+        return out
+    }
+
+    public static bool SendCommand(string session, string role, string cmd) {
+        var ok: int = 0
+        @c { ok = _dbg_send_cmd_c(session, role, cmd); }
+        return ok != 0
+    }
+}
