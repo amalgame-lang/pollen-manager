@@ -34,10 +34,14 @@
   const CANVAS_W = 800;
   const CANVAS_H = 420;
 
+  const $modeEdit  = document.getElementById('mode-edit');
+  const $modeWatch = document.getElementById('mode-watch');
+
   let wf = null;
   let selected = null;
   let dirty = false;       // unsaved changes vs server
   let drag = null;         // { name, dx, dy, moved, $g } during a drag
+  let mode = 'edit';       // 'edit' | 'watch'
 
   // DOM index by node name → { g, edgesFrom: [<line>], edgesTo: [<line>] }
   const nodeIndex = new Map();
@@ -122,11 +126,15 @@
 
     const defs = document.createElementNS(SVG_NS, 'defs');
     defs.innerHTML =
-      '<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" ' +
-      'markerWidth="6" markerHeight="6" orient="auto">' +
-      '<path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/></marker>' +
+      // Bigger, brighter arrow — was too subtle before. The tip
+      // (refX=10) lands right where the line ends (at the
+      // destination node's left edge), and orient="auto" rotates
+      // it with the line direction so curved layouts still work.
+      '<marker id="arrow" viewBox="0 0 12 10" refX="10" refY="5" ' +
+      'markerWidth="9" markerHeight="9" orient="auto">' +
+      '<path d="M 0 0 L 12 5 L 0 10 L 3 5 z" fill="#9ba0a8"/></marker>' +
       '<pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">' +
-      '<path d="M 40 0 L 0 0 0 40" fill="none" stroke="currentColor" stroke-width="0.5" opacity="0.08"/>' +
+      '<path d="M 40 0 L 0 0 0 40" fill="none" stroke="#2a2d34" stroke-width="0.5" opacity="0.6"/>' +
       '</pattern>';
     $svg.appendChild(defs);
 
@@ -231,6 +239,9 @@
   function onNodeMouseDown(evt, name) {
     evt.preventDefault();
     evt.stopPropagation();
+    // In Watch mode, nodes are inert — no drag, no selection.
+    // The DAG is a read-only schematic for the live dashboard.
+    if (mode === 'watch') return;
     const p = svgPoint(evt);
     const layout = wf._layout[name] || { x: 0, y: 0 };
     const entry = nodeIndex.get(name);
@@ -468,10 +479,61 @@
     if (dirty) { e.preventDefault(); e.returnValue = ''; }
   });
 
+  // ── Mode toggle: Edit vs Watch ──────────────────────────────
+  // Edit  → polling OFF, drag/inspector/add/delete/save/apply enabled.
+  // Watch → polling ON, DAG is read-only, inspector hidden, no dirty
+  //         changes possible (so polling can refresh the workflow
+  //         from disk without clobbering unsaved work).
+  //
+  // Switching Edit → Watch when dirty prompts the user — Watch mode
+  // refreshes the wf from /api/workflow, which would silently lose
+  // local edits otherwise.
+
+  function setMode(next) {
+    if (next === mode) return;
+    if (next === 'watch' && dirty) {
+      const choice = confirm(
+        'You have unsaved changes. Switching to Watch mode will discard them. Continue?'
+      );
+      if (!choice) return;
+    }
+    mode = next;
+    $modeEdit.classList.toggle('active',  mode === 'edit');
+    $modeWatch.classList.toggle('active', mode === 'watch');
+    $modeEdit.setAttribute('aria-selected',  mode === 'edit'  ? 'true' : 'false');
+    $modeWatch.setAttribute('aria-selected', mode === 'watch' ? 'true' : 'false');
+    document.body.dataset.mode = mode;
+
+    // Edit-only buttons.
+    $add.disabled    = mode !== 'edit';
+    $apply.disabled  = mode !== 'edit';
+    $delete.disabled = mode !== 'edit' || !selected;
+    $save.disabled   = mode !== 'edit';
+
+    // Read-only form inputs in Watch mode.
+    [$fName, $fHost, $fPort, $fCons, $fEmits, $fNext].forEach(el => {
+      el.readOnly = mode === 'watch';
+    });
+
+    if (mode === 'watch') {
+      // Fresh state from disk + start polling.
+      selected = null;
+      stopLive();
+      load().then(() => startLive());
+    } else {
+      stopLive();
+      // Reset placeholder list.
+      $liveList.innerHTML = '<li class="placeholder">Switch to <strong>Watch</strong> mode to see live executions.</li>';
+      $liveMeta.textContent = '';
+    }
+  }
+
+  $modeEdit .addEventListener('click', () => setMode('edit'));
+  $modeWatch.addEventListener('click', () => setMode('watch'));
+
   // ── Live executions panel (Phase 4.2) ───────────────────────
   const $liveList   = document.getElementById('live-list');
   const $liveMeta   = document.getElementById('live-meta');
-  const $liveToggle = document.getElementById('live-toggle');
 
   let livePollTimer = null;
   let liveLastIds = new Set();   // for "new-since-last-poll" flash
@@ -559,11 +621,10 @@
     livePollTimer = null;
   }
 
-  $liveToggle.addEventListener('change', () => {
-    if ($liveToggle.checked) startLive(); else stopLive();
-  });
+  // Polling is driven entirely by the Edit/Watch mode toggle —
+  // started in setMode('watch'), stopped in setMode('edit').
 
-  if ($liveToggle.checked) startLive();
-
+  // Initial state: Edit mode. Load the workflow, leave polling off.
+  document.body.dataset.mode = 'edit';
   load();
 })();
