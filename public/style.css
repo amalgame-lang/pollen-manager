@@ -110,6 +110,65 @@ body[data-mode="watch"] #inspector-form input { color: var(--fg-muted); }
   color: var(--accent);
 }
 
+/* ── Breakpoint summary in header ─────────────────────────── */
+#bp-summary[hidden] { display: none; }
+#bp-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: rgba(248, 113, 113, 0.08);
+  border: 1px solid rgba(248, 113, 113, 0.3);
+  border-radius: var(--radius-sm);
+  font: 11px var(--font-mono);
+  color: var(--error);
+  margin-left: 4px;
+}
+#bp-summary .bp-label {
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--error);
+}
+#bp-summary .bp-list {
+  color: var(--fg);
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#bp-summary button {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--fg-muted);
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  line-height: 1;
+}
+#bp-summary button:hover {
+  background: var(--bg-2);
+  border-color: var(--line-mid);
+  color: var(--fg);
+}
+
+/* ── Breakpoint dot on DAG node (top-left, opposite the count badge) ── */
+#dag .node-bp { opacity: 0; transition: opacity 120ms; pointer-events: none; }
+#dag .node-group.has-bp .node-bp { opacity: 1; }
+#dag .node-bp .bp-dot {
+  fill: var(--error);
+  stroke: var(--bg-0);
+  stroke-width: 1.5;
+  filter: drop-shadow(0 0 4px rgba(248, 113, 113, 0.6));
+}
+#dag .node-group.has-bp .node-rect {
+  stroke: var(--error);
+  stroke-dasharray: 4 2;
+}
+#dag .node-group.has-bp.selected .node-rect {
+  stroke: var(--accent);
+  stroke-dasharray: 4 2;
+}
+
 /* Paused node on the DAG : persistent glow until step/continue */
 #dag .node-group.paused .node-rect {
   fill: var(--bg-3);

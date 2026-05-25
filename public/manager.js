@@ -219,7 +219,25 @@
       badgeG.appendChild(badgeText);
       g.appendChild(badgeG);
 
+      // Breakpoint dot (top-left corner). Visible when this
+      // node's name is in the breakpoints set ; toggled via
+      // right-click. Counter-positioned to the count badge.
+      const bpG = document.createElementNS(SVG_NS, 'g');
+      bpG.setAttribute('class', 'node-bp');
+      const bpDot = document.createElementNS(SVG_NS, 'circle');
+      bpDot.setAttribute('class', 'bp-dot');
+      bpDot.setAttribute('cx', -NODE_W / 2 + 4);
+      bpDot.setAttribute('cy', -NODE_H / 2 + 4);
+      bpDot.setAttribute('r', 5);
+      bpG.appendChild(bpDot);
+      g.appendChild(bpG);
+      if (breakpoints.has(k)) g.classList.add('has-bp');
+
       g.addEventListener('mousedown', e => onNodeMouseDown(e, k));
+      g.addEventListener('contextmenu', e => {
+        e.preventDefault();
+        toggleBreakpoint(k);
+      });
       $svg.appendChild(g);
       const idx = nodeIndex.get(k);
       idx.g = g;
@@ -584,26 +602,86 @@
     return s.slice(0, 8);
   }
 
+  function makeLiveRow(r) {
+    const rec = r.record || {};
+    const ts = fmtTime(rec.timestamp);
+    const arrow = rec.topicOut
+      ? `${rec.topicIn || '∅'} → ${rec.topicOut}`
+      : `${rec.topicIn || '∅'} → terminal`;
+    const term = !rec.topicOut;
+    const li = document.createElement('li');
+    li.className = 'live-row' + (term ? ' terminal' : '');
+    li.dataset.role = r.role;
+    li.dataset.mid = r.messageId;
+    li.dataset.file = r.file;
+    li.innerHTML =
+      `<span class="t">${escapeAttr(ts)}</span>` +
+      `<span class="role">${escapeAttr(r.role)}</span>` +
+      `<span class="mid">${escapeAttr(shortId(r.messageId))}</span>` +
+      `<span class="topics">${escapeAttr(arrow)}</span>`;
+    const role = r.role;
+    li.addEventListener('mouseenter', () => highlightNode(role, true));
+    li.addEventListener('mouseleave', () => highlightNode(role, false));
+    return li;
+  }
+
   function renderLive(records) {
     if (!records.length) {
-      $liveList.innerHTML = '<li class="placeholder">No executions yet.</li>';
+      $liveList.replaceChildren();
+      const empty = document.createElement('li');
+      empty.className = 'placeholder';
+      empty.textContent = 'No executions yet.';
+      $liveList.appendChild(empty);
       $liveMeta.textContent = '0 records';
       resetNodeStats();
       return;
     }
     $liveMeta.textContent = `${records.length} record${records.length === 1 ? '' : 's'}`;
 
-    // Detect what's NEW since last poll → drives node/edge flashes.
-    const currentIds = new Set();
-    const newRecords = [];
-    for (const r of records) {
-      currentIds.add(r.file);
-      if (livePollTimer && !liveLastIds.has(r.file) && liveLastIds.size > 0) {
+    // First render after start (or after clear) — wipe + build all.
+    const isInitial = !liveLastIds.size;
+    if (isInitial) {
+      $liveList.replaceChildren();
+      const frag = document.createDocumentFragment();
+      for (const r of records) frag.appendChild(makeLiveRow(r));
+      $liveList.appendChild(frag);
+    } else {
+      // Incremental : only prepend rows whose file isn't already
+      // in the DOM. Keep existing DOM stable so mouseover/scroll
+      // state isn't blown away every poll. The records array is
+      // already newest-first (server gives it that way + we
+      // prepend new ones in pollLive). So we walk from the head
+      // and stop at the first known file.
+      const frag = document.createDocumentFragment();
+      const newRecords = [];
+      for (const r of records) {
+        if (liveLastIds.has(r.file)) break;
+        const li = makeLiveRow(r);
+        frag.appendChild(li);
         newRecords.push(r);
+        li.classList.add('flash');  // CSS animation, no JS timer needed
+      }
+      if (newRecords.length > 0) {
+        $liveList.insertBefore(frag, $liveList.firstChild);
+        // Trim from the tail if we exceeded the client cap.
+        while ($liveList.children.length > CLIENT_CAP) {
+          $liveList.removeChild($liveList.lastChild);
+        }
+        // Flash matching nodes + edges for the truly-new ones.
+        for (const r of newRecords) {
+          flashNode(r.role);
+          const rec = r.record || {};
+          if (rec.topicOut) {
+            const node = wf && wf.nodes && wf.nodes[r.role];
+            if (node && Array.isArray(node.next)) {
+              for (const tgt of node.next) flashEdge(r.role, tgt);
+            }
+          }
+        }
       }
     }
 
-    // Aggregate stats per role (count + most-recent ts).
+    // Rebuild aggregated stats + sync badges. O(N) on the window.
     nodeStats.clear();
     for (const r of records) {
       const role = r.role;
@@ -615,49 +693,8 @@
     }
     syncBadges();
 
-    // Flash nodes + edges for each new record.
-    for (const r of newRecords) {
-      flashNode(r.role);
-      const rec = r.record || {};
-      if (rec.topicOut) {
-        // Emitter — flash every outgoing edge to nodes that consume topicOut.
-        const node = wf && wf.nodes && wf.nodes[r.role];
-        if (node && Array.isArray(node.next)) {
-          for (const tgt of node.next) {
-            flashEdge(r.role, tgt);
-          }
-        }
-      }
-    }
-
-    // Build the row list.
-    const html = [];
-    for (const r of records) {
-      const isNew = livePollTimer && !liveLastIds.has(r.file) && liveLastIds.size > 0;
-      const rec = r.record || {};
-      const ts = fmtTime(rec.timestamp);
-      const arrow = rec.topicOut
-        ? `${rec.topicIn || '∅'} → ${rec.topicOut}`
-        : `${rec.topicIn || '∅'} → terminal`;
-      const term = !rec.topicOut;
-      html.push(
-        `<li class="live-row${isNew ? ' flash' : ''}${term ? ' terminal' : ''}" ` +
-        `data-role="${escapeAttr(r.role)}" data-mid="${escapeAttr(r.messageId)}">` +
-          `<span class="t">${ts}</span>` +
-          `<span class="role">${escapeAttr(r.role)}</span>` +
-          `<span class="mid">${shortId(r.messageId)}</span>` +
-          `<span class="topics">${escapeAttr(arrow)}</span>` +
-        `</li>`
-      );
-    }
-    $liveList.innerHTML = html.join('');
-    liveLastIds = currentIds;
-
-    $liveList.querySelectorAll('.live-row').forEach(row => {
-      const role = row.dataset.role;
-      row.addEventListener('mouseenter', () => highlightNode(role, true));
-      row.addEventListener('mouseleave', () => highlightNode(role, false));
-    });
+    // Update tracking set for the next diff.
+    liveLastIds = new Set(records.map(r => r.file));
   }
 
   function syncBadges() {
@@ -772,9 +809,24 @@
   const $dbgContinue  = document.getElementById('dbg-continue');
   const $dbgCancel    = document.getElementById('dbg-cancel');
   const $dbgToggle    = document.getElementById('debug-toggle');
+  const $bpSummary    = document.getElementById('bp-summary');
+  const $bpList       = document.getElementById('bp-list');
+  const $bpCopy       = document.getElementById('bp-copy');
+  const $bpClear      = document.getElementById('bp-clear');
   let dbgPollTimer = null;
   let dbgActive = null;  // { session, role } of the currently shown pause
   let dbgPausedRole = null;  // role with the .paused class on DAG, for cleanup
+  // Client-side breakpoints — set via right-click on a DAG node,
+  // persisted in localStorage. They're DISPLAY-ONLY today : the
+  // operator copies the string to their --debug-bp CLI arg via
+  // the [⎘] button. Phase 4.5.5 will wire them into a UI-driven
+  // "Inject debug msg" form so no CLI is required.
+  const BP_STORAGE_KEY = 'pollen-manager:bp';
+  let breakpoints = new Set();
+  try {
+    const stored = localStorage.getItem(BP_STORAGE_KEY);
+    if (stored) breakpoints = new Set(JSON.parse(stored));
+  } catch (e) { /* corrupt storage, ignore */ }
 
   function clearPausedHighlight() {
     if (!dbgPausedRole) return;
@@ -874,6 +926,62 @@
     if ($dbgToggle.checked) startDebugPoll();
     else stopDebugPoll();
   });
+
+  // ── Breakpoints UI ──────────────────────────────────────────
+  function toggleBreakpoint(name) {
+    if (breakpoints.has(name)) breakpoints.delete(name);
+    else breakpoints.add(name);
+    saveBreakpoints();
+    syncBpSummary();
+    const e = nodeIndex.get(name);
+    if (e && e.g) e.g.classList.toggle('has-bp', breakpoints.has(name));
+  }
+
+  function saveBreakpoints() {
+    try {
+      localStorage.setItem(BP_STORAGE_KEY,
+        JSON.stringify([...breakpoints]));
+    } catch (e) { /* ignore quota errors */ }
+  }
+
+  function bpCsv() {
+    return [...breakpoints].join(',');
+  }
+
+  function syncBpSummary() {
+    if (breakpoints.size === 0) {
+      $bpSummary.hidden = true;
+      return;
+    }
+    $bpSummary.hidden = false;
+    $bpList.textContent = bpCsv();
+  }
+
+  $bpCopy.addEventListener('click', async () => {
+    if (breakpoints.size === 0) return;
+    const arg = `--debug-bp ${bpCsv()}`;
+    try {
+      await navigator.clipboard.writeText(arg);
+      setStatus(`copied: ${arg}`, 'ok');
+    } catch (e) {
+      setStatus('clipboard write failed: ' + e.message, 'error');
+    }
+  });
+
+  $bpClear.addEventListener('click', () => {
+    if (breakpoints.size === 0) return;
+    // Visual clear : walk every node group and drop the .has-bp class.
+    for (const [name, entry] of nodeIndex.entries()) {
+      if (entry && entry.g) entry.g.classList.remove('has-bp');
+    }
+    breakpoints.clear();
+    saveBreakpoints();
+    syncBpSummary();
+    setStatus('breakpoints cleared', 'ok');
+  });
+
+  // Initial sync (in case breakpoints came from localStorage).
+  syncBpSummary();
 
   // Polling is driven entirely by the Edit/Watch mode toggle —
   // started in setMode('watch'), stopped in setMode('edit').

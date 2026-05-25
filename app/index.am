@@ -27,6 +27,12 @@ public class Page {
             "<input id=\"debug-toggle\" type=\"checkbox\">" +
             "<span class=\"debug-toggle-label\">⏸ Debug</span>" +
             "</label>" +
+            "<div id=\"bp-summary\" class=\"bp-summary\" hidden>" +
+            "<span class=\"bp-label\">BP:</span>" +
+            "<span id=\"bp-list\" class=\"bp-list\"></span>" +
+            "<button id=\"bp-copy\" class=\"bp-copy\" title=\"Copy --debug-bp arg\">⎘</button>" +
+            "<button id=\"bp-clear\" class=\"bp-clear\" title=\"Clear all breakpoints\">✕</button>" +
+            "</div>" +
             "</header>" +
             // ── Debug bridge banner (Phase 4.5.3) ──
             // Hidden by default, shown when /api/debug/pauses
