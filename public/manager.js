@@ -538,15 +538,21 @@
     });
 
     if (mode === 'watch') {
-      // Fresh state from disk + start polling.
+      // Fresh state from disk + start polling. Reset all live
+      // accumulators so the new session starts clean.
       selected = null;
       stopLive();
+      liveRecords = [];
+      liveLastIds = new Set();
+      lastSeenTs = 0;
       load().then(() => startLive());
     } else {
       stopLive();
       $liveList.innerHTML = '<li class="placeholder">Switch to <strong>Watch</strong> mode to see live executions.</li>';
       $liveMeta.textContent = '';
+      liveRecords = [];
       liveLastIds = new Set();
+      lastSeenTs = 0;
       resetNodeStats();
     }
   }
@@ -561,6 +567,9 @@
   let livePollTimer = null;
   let liveLastIds = new Set();   // for "new-since-last-poll" flash
   let nodeStats = new Map();     // role → { count, lastTs }
+  let liveRecords = [];          // accumulated records, client-side window
+  let lastSeenTs = 0;            // largest record.timestamp we have, for ?since=
+  const CLIENT_CAP = 200;        // window size kept in memory + shown
 
   function fmtTime(ms) {
     if (!ms) return '';
@@ -704,10 +713,30 @@
 
   async function pollLive() {
     try {
-      const r = await fetch('/api/executions');
+      const url = lastSeenTs > 0
+        ? `/api/executions?since=${lastSeenTs}`
+        : '/api/executions';
+      const r = await fetch(url);
       if (!r.ok) return;
-      const records = await r.json();
-      renderLive(records);
+      const fresh = await r.json();
+      if (fresh.length === 0) return;   // nothing new — skip render churn
+
+      // Server returns newest-first. We prepend to liveRecords +
+      // trim to CLIENT_CAP. Records by `file` are deduped (just in
+      // case the server returns one we already have from a prior
+      // poll that lost a race).
+      const seen = new Set(liveRecords.map(r => r.file));
+      const toAdd = fresh.filter(r => !seen.has(r.file));
+
+      // Track the highest timestamp seen so the next poll asks for
+      // strictly-newer-than.
+      for (const r of toAdd) {
+        const ts = (r.record && r.record.timestamp) || 0;
+        if (ts > lastSeenTs) lastSeenTs = ts;
+      }
+
+      liveRecords = toAdd.concat(liveRecords).slice(0, CLIENT_CAP);
+      renderLive(liveRecords);
     } catch (e) {
       // network glitch, silent retry next tick
     }
