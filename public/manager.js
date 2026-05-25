@@ -1,26 +1,14 @@
-// Pollen Manager — Phase 4.1 WYSIWYG editor.
+// Pollen Manager — Phase 4.1.1 WYSIWYG editor.
 //
-// State model
+// State
 //   wf            current workflow object, parsed
-//                 wf._layout[nodeName] = {x, y}  ← sidecar, persists positions
+//                 wf._layout[nodeName] = {x, y}  ← sidecar
 //   selected      currently selected node name, or null
 //
-// Interactions
-//   Drag a node            mousedown+mousemove on the node group ; on mouseup
-//                          we commit wf._layout[name] and re-render edges.
-//   Click a node           open inspector for that node, populate form.
-//   Apply (inspector)      copy form values back into wf.nodes[selected],
-//                          handle rename (move key), redraw + update raw view.
-//   Add node               creates a new entry in wf.nodes with default
-//                          fields ; auto-selected.
-//   Delete selected        drops wf.nodes[selected] + any next: refs pointing
-//                          at it.
-//   Save                   PUT /api/workflow with JSON.stringify(wf, null, 2).
-//   Reload                 GET /api/workflow, discard local changes.
-//
-// The textarea in the inspector is read-only — it's the canonical
-// view of the JSON that will be PUT'd. Edit happens via the form
-// or by dragging.
+// Drag is incremental — render() is NOT called on every
+// mousemove. We mutate only the dragged node's transform + the
+// edges incident on it. The full render() runs on data changes
+// (load / save / add / delete / apply / select).
 
 (() => {
   const $svg      = document.getElementById('dag');
@@ -41,14 +29,18 @@
   const $apply    = document.getElementById('apply');
 
   const SVG_NS = 'http://www.w3.org/2000/svg';
-  const NODE_W = 100;
-  const NODE_H = 44;
+  const NODE_W = 110;
+  const NODE_H = 46;
   const CANVAS_W = 800;
   const CANVAS_H = 420;
 
   let wf = null;
   let selected = null;
-  let drag = null;     // { name, dx, dy } during a drag
+  let dirty = false;       // unsaved changes vs server
+  let drag = null;         // { name, dx, dy, moved, $g } during a drag
+
+  // DOM index by node name → { g, edgesFrom: [<line>], edgesTo: [<line>] }
+  const nodeIndex = new Map();
 
   // ── status helpers ──────────────────────────────────────────
   function setStatus(msg, kind) {
@@ -56,25 +48,28 @@
     $status.className = kind || '';
   }
 
-  // ── data <-> view ───────────────────────────────────────────
-  function refreshRaw() {
-    $src.value = JSON.stringify(wf, null, 2);
+  function markDirty() {
+    dirty = true;
+    $save.classList.add('pulse');
   }
 
+  function markClean() {
+    dirty = false;
+    $save.classList.remove('pulse');
+  }
+
+  // ── layout helpers ──────────────────────────────────────────
   function ensureLayout() {
     if (!wf._layout) wf._layout = {};
-    // For every node missing a layout entry, compute one via topo.
     const fallback = topoLayout(wf);
     for (const k of Object.keys(wf.nodes || {})) {
       if (!wf._layout[k]) wf._layout[k] = fallback[k];
     }
-    // Drop layout entries for deleted nodes.
     for (const k of Object.keys(wf._layout)) {
       if (!wf.nodes[k]) delete wf._layout[k];
     }
   }
 
-  // Trivial topological column layout — same as Phase 4.0.
   function topoLayout(wf) {
     const nodes = wf.nodes || {};
     const keys = Object.keys(nodes);
@@ -103,7 +98,7 @@
     const cols = {};
     for (const k of keys) { (cols[rank[k]] ||= []).push(k); }
     const colKeys = Object.keys(cols).map(Number).sort((a, b) => a - b);
-    const padX = 80, padY = 60;
+    const padX = 90, padY = 70;
     const stepX = colKeys.length > 1 ? (CANVAS_W - 2 * padX) / (colKeys.length - 1) : 0;
     const out = {};
     for (let ci = 0; ci < colKeys.length; ci++) {
@@ -119,27 +114,36 @@
     return out;
   }
 
-  function escapeXml(s) {
-    return String(s).replace(/[<>&"']/g, c => (
-      { '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;' }[c]
-    ));
-  }
-
-  // ── render ──────────────────────────────────────────────────
+  // ── render (full rebuild — call on data changes) ────────────
   function render() {
     ensureLayout();
+    nodeIndex.clear();
     $svg.innerHTML = '';
-    // arrow marker
+
     const defs = document.createElementNS(SVG_NS, 'defs');
     defs.innerHTML =
       '<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" ' +
       'markerWidth="6" markerHeight="6" orient="auto">' +
-      '<path d="M 0 0 L 10 5 L 0 10 z" fill="#888"/></marker>';
+      '<path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/></marker>' +
+      '<pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">' +
+      '<path d="M 40 0 L 0 0 0 40" fill="none" stroke="currentColor" stroke-width="0.5" opacity="0.08"/>' +
+      '</pattern>';
     $svg.appendChild(defs);
 
-    // edges
-    const nodes = wf.nodes || {};
-    for (const [from, n] of Object.entries(nodes)) {
+    const bg = document.createElementNS(SVG_NS, 'rect');
+    bg.setAttribute('class', 'canvas-bg');
+    bg.setAttribute('width', CANVAS_W);
+    bg.setAttribute('height', CANVAS_H);
+    bg.setAttribute('fill', 'url(#grid)');
+    $svg.appendChild(bg);
+
+    // Pre-register nodes so we can index edges.
+    for (const k of Object.keys(wf.nodes)) {
+      nodeIndex.set(k, { g: null, edgesFrom: [], edgesTo: [] });
+    }
+
+    // Edges first, so nodes draw on top.
+    for (const [from, n] of Object.entries(wf.nodes)) {
       const a = wf._layout[from];
       if (!a) continue;
       for (const to of (n.next || [])) {
@@ -151,12 +155,15 @@
         line.setAttribute('y1', a.y);
         line.setAttribute('x2', b.x - NODE_W / 2);
         line.setAttribute('y2', b.y);
+        line.dataset.from = from;
+        line.dataset.to = to;
         $svg.appendChild(line);
+        nodeIndex.get(from).edgesFrom.push(line);
+        if (nodeIndex.get(to)) nodeIndex.get(to).edgesTo.push(line);
       }
     }
 
-    // nodes
-    for (const [k, n] of Object.entries(nodes)) {
+    for (const [k, n] of Object.entries(wf.nodes)) {
       const p = wf._layout[k];
       if (!p) continue;
       const g = document.createElementNS(SVG_NS, 'g');
@@ -170,12 +177,12 @@
       rect.setAttribute('y', -NODE_H / 2);
       rect.setAttribute('width', NODE_W);
       rect.setAttribute('height', NODE_H);
-      rect.setAttribute('rx', 6);
+      rect.setAttribute('rx', 4);
       g.appendChild(rect);
 
       const label = document.createElementNS(SVG_NS, 'text');
       label.setAttribute('class', 'node-label');
-      label.setAttribute('y', -2);
+      label.setAttribute('y', -3);
       label.textContent = k;
       g.appendChild(label);
 
@@ -187,10 +194,31 @@
 
       g.addEventListener('mousedown', e => onNodeMouseDown(e, k));
       $svg.appendChild(g);
+      nodeIndex.get(k).g = g;
     }
 
     refreshRaw();
     syncInspector();
+  }
+
+  function refreshRaw() {
+    $src.value = JSON.stringify(wf, null, 2);
+  }
+
+  // ── incremental drag update (no full render) ────────────────
+  function moveNode(name, x, y) {
+    wf._layout[name] = { x, y };
+    const entry = nodeIndex.get(name);
+    if (!entry || !entry.g) return;
+    entry.g.setAttribute('transform', `translate(${x}, ${y})`);
+    for (const line of entry.edgesFrom) {
+      line.setAttribute('x1', x + NODE_W / 2);
+      line.setAttribute('y1', y);
+    }
+    for (const line of entry.edgesTo) {
+      line.setAttribute('x2', x - NODE_W / 2);
+      line.setAttribute('y2', y);
+    }
   }
 
   // ── drag ────────────────────────────────────────────────────
@@ -202,9 +230,18 @@
 
   function onNodeMouseDown(evt, name) {
     evt.preventDefault();
+    evt.stopPropagation();
     const p = svgPoint(evt);
     const layout = wf._layout[name] || { x: 0, y: 0 };
-    drag = { name, dx: layout.x - p.x, dy: layout.y - p.y, moved: false };
+    const entry = nodeIndex.get(name);
+    drag = {
+      name,
+      dx: layout.x - p.x,
+      dy: layout.y - p.y,
+      moved: false,
+      $g: entry && entry.g,
+    };
+    if (drag.$g) drag.$g.classList.add('dragging');
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mouseup', onMouseUp);
   }
@@ -212,30 +249,46 @@
   function onMouseMove(evt) {
     if (!drag) return;
     const p = svgPoint(evt);
-    const nx = Math.max(NODE_W / 2, Math.min(CANVAS_W - NODE_W / 2, p.x + drag.dx));
-    const ny = Math.max(NODE_H / 2, Math.min(CANVAS_H - NODE_H / 2, p.y + drag.dy));
-    wf._layout[drag.name] = { x: nx, y: ny };
-    drag.moved = true;
-    render();
-  }
-
-  function onMouseUp(evt) {
-    document.removeEventListener('mousemove', onMouseMove);
-    document.removeEventListener('mouseup', onMouseUp);
-    if (drag) {
-      if (!drag.moved) {
-        // click without drag → select
-        select(drag.name);
-      }
-      drag = null;
+    const nx = clamp(p.x + drag.dx, NODE_W / 2, CANVAS_W - NODE_W / 2);
+    const ny = clamp(p.y + drag.dy, NODE_H / 2, CANVAS_H - NODE_H / 2);
+    moveNode(drag.name, nx, ny);
+    if (!drag.moved) {
+      drag.moved = true;
+      markDirty();
     }
   }
 
+  function onMouseUp() {
+    document.removeEventListener('mousemove', onMouseMove);
+    document.removeEventListener('mouseup', onMouseUp);
+    if (!drag) return;
+    if (drag.$g) drag.$g.classList.remove('dragging');
+    if (!drag.moved) {
+      select(drag.name);
+    } else {
+      refreshRaw();        // sync the raw view once at the end
+    }
+    drag = null;
+  }
+
+  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
   // ── selection / inspector ───────────────────────────────────
   function select(name) {
+    if (selected === name) { syncInspector(); return; }
+    const prev = selected;
     selected = name;
     $delete.disabled = !name;
-    render();
+    // Toggle .selected class on the affected nodes only.
+    if (prev) {
+      const e = nodeIndex.get(prev);
+      if (e && e.g) e.g.classList.remove('selected');
+    }
+    if (name) {
+      const e = nodeIndex.get(name);
+      if (e && e.g) e.g.classList.add('selected');
+    }
+    syncInspector();
   }
 
   function syncInspector() {
@@ -263,17 +316,19 @@
       return;
     }
     if (newName !== selected && wf.nodes[newName]) {
-      setStatus('name "' + newName + '" already in use', 'error');
+      setStatus(`name "${newName}" already in use`, 'error');
       return;
     }
     const n = wf.nodes[selected];
-    n.host = $fHost.value.trim() || '127.0.0.1';
-    n.port = Number($fPort.value) || 0;
-    n.consumes = splitList($fCons.value);
-    n.emits    = splitList($fEmits.value);
-    n.next     = splitList($fNext.value);
+    const host = $fHost.value.trim();
+    const port = Number($fPort.value);
+    if (host) n.host = host; else delete n.host;
+    if (port) n.port = port; else delete n.port;
+    setOrDeleteArray(n, 'consumes', splitList($fCons.value));
+    setOrDeleteArray(n, 'emits',    splitList($fEmits.value));
+    setOrDeleteArray(n, 'next',     splitList($fNext.value));
+
     if (newName !== selected) {
-      // rename: move key + retarget _layout + retarget next refs
       wf.nodes[newName] = n;
       delete wf.nodes[selected];
       wf._layout[newName] = wf._layout[selected];
@@ -286,8 +341,20 @@
       }
       selected = newName;
     }
-    setStatus('applied (unsaved)', 'ok');
+    setStatus('applied — click Save to persist', 'ok');
+    markDirty();
     render();
+  }
+
+  function setOrDeleteArray(obj, key, arr) {
+    if (arr.length === 0) {
+      // Preserve absence: don't add an empty array if the node
+      // never had one to begin with.
+      if (!Array.isArray(obj[key])) return;
+      delete obj[key];
+      return;
+    }
+    obj[key] = arr;
   }
 
   function splitList(s) {
@@ -302,14 +369,13 @@
     wf.nodes[name] = {
       host: '127.0.0.1',
       port: 7900 + i,
-      consumes: [],
-      emits: [],
-      next: [],
     };
     wf._layout = wf._layout || {};
-    wf._layout[name] = { x: 200 + (i * 30) % 400, y: 200 + (i * 20) % 100 };
-    select(name);
-    setStatus('added ' + name + ' (unsaved)', 'ok');
+    wf._layout[name] = { x: 200 + (i * 30) % 400, y: 200 + (i * 25) % 100 };
+    selected = name;
+    markDirty();
+    setStatus(`added ${name} — click Save to persist`, 'ok');
+    render();
   }
 
   function deleteSelected() {
@@ -319,11 +385,15 @@
     if (wf._layout) delete wf._layout[dead];
     for (const k of Object.keys(wf.nodes)) {
       const n = wf.nodes[k];
-      if (Array.isArray(n.next)) n.next = n.next.filter(t => t !== dead);
+      if (Array.isArray(n.next)) {
+        const filtered = n.next.filter(t => t !== dead);
+        setOrDeleteArray(n, 'next', filtered);
+      }
     }
     selected = null;
     $delete.disabled = true;
-    setStatus('deleted ' + dead + ' (unsaved)', 'ok');
+    markDirty();
+    setStatus(`deleted ${dead} — click Save to persist`, 'ok');
     render();
   }
 
@@ -334,15 +404,17 @@
       const r = await fetch('/api/workflow');
       const txt = await r.text();
       if (!r.ok) {
-        setStatus('GET failed (' + r.status + ')', 'error');
+        setStatus(`GET failed (${r.status})`, 'error');
         return;
       }
       wf = JSON.parse(txt);
       if (!wf.nodes) wf.nodes = {};
       selected = null;
       $delete.disabled = true;
+      markClean();
       render();
-      setStatus('loaded · ' + Object.keys(wf.nodes).length + ' node(s)', 'ok');
+      const n = Object.keys(wf.nodes).length;
+      setStatus(`loaded · ${n} node${n === 1 ? '' : 's'}`, 'ok');
     } catch (e) {
       setStatus('load error: ' + e.message, 'error');
     }
@@ -359,10 +431,11 @@
       });
       const reply = await r.json();
       if (!r.ok) {
-        setStatus('PUT failed: ' + (reply.error || r.status), 'error');
+        setStatus(`PUT failed: ${reply.error || r.status}`, 'error');
         return;
       }
-      setStatus('saved → ' + reply.path + ' (' + reply.bytes + ' bytes)', 'ok');
+      markClean();
+      setStatus(`saved · ${reply.bytes} bytes → ${reply.path}`, 'ok');
     } catch (e) {
       setStatus('save error: ' + e.message, 'error');
     }
@@ -375,9 +448,24 @@
   $delete.addEventListener('click', deleteSelected);
   $apply.addEventListener('click', applyForm);
 
-  // Clicking empty SVG deselects.
+  // Empty SVG click → deselect.
   $svg.addEventListener('mousedown', e => {
-    if (e.target === $svg) select(null);
+    if (e.target === $svg || e.target.classList.contains('canvas-bg')) {
+      select(null);
+    }
+  });
+
+  // Submit-on-Enter inside inspector → Apply (without page reload).
+  $form.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && e.target.tagName === 'INPUT') {
+      e.preventDefault();
+      applyForm();
+    }
+  });
+
+  // Confirm before nav away with unsaved.
+  window.addEventListener('beforeunload', e => {
+    if (dirty) { e.preventDefault(); e.returnValue = ''; }
   });
 
   load();
