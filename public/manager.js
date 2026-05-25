@@ -563,6 +563,7 @@
   // ── Live executions panel (Phase 4.2) ───────────────────────
   const $liveList   = document.getElementById('live-list');
   const $liveMeta   = document.getElementById('live-meta');
+  const $cleanup    = document.getElementById('cleanup');
 
   let livePollTimer = null;
   let liveLastIds = new Set();   // for "new-since-last-poll" flash
@@ -753,6 +754,29 @@
 
   // Polling is driven entirely by the Edit/Watch mode toggle —
   // started in setMode('watch'), stopped in setMode('edit').
+
+  // Cleanup button — purges old executions via /api/cleanup.
+  $cleanup.addEventListener('click', async () => {
+    if (!confirm('Purge executions older than the configured retention?')) return;
+    setStatus('purging…');
+    try {
+      const r = await fetch('/api/cleanup', { method: 'POST' });
+      const reply = await r.json();
+      if (!r.ok) {
+        setStatus(`cleanup failed: ${reply.error || r.status}`, 'error');
+        return;
+      }
+      setStatus(`purged ${reply.purged} record${reply.purged === 1 ? '' : 's'}`, 'ok');
+      // Reset the local cache so next poll re-fetches what's left.
+      liveRecords = [];
+      liveLastIds = new Set();
+      lastSeenTs = 0;
+      resetNodeStats();
+      if (mode === 'watch') pollLive();
+    } catch (e) {
+      setStatus('cleanup error: ' + e.message, 'error');
+    }
+  });
 
   // Initial state: Edit mode. Load the workflow, leave polling off.
   document.body.dataset.mode = 'edit';

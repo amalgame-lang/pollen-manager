@@ -401,7 +401,11 @@ body[data-mode="watch"] #dag .node-badge.on { opacity: 1; }
 .live-head #live-meta {
   font: 10px var(--font-mono);
   color: var(--fg-dim);
-  margin-left: 6px;
+  margin-right: 4px;
+}
+.live-head #cleanup {
+  font-size: 11px;
+  padding: 3px 8px;
 }
 
 #live-list {
