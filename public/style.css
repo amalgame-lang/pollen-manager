@@ -230,6 +230,43 @@ button#save.pulse {
   opacity: 0.85;
 }
 #dag .edge:hover { stroke: var(--accent); opacity: 1; }
+#dag .edge.flash {
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  opacity: 1;
+  animation: edge-flash 1.4s ease-out;
+}
+@keyframes edge-flash {
+  0%   { stroke: var(--accent); stroke-width: 3; filter: drop-shadow(0 0 4px var(--accent-glow)); }
+  100% { stroke: var(--fg-muted); stroke-width: 1.5; filter: none; }
+}
+
+/* ── Node count badge (Watch mode) ────────────────────────── */
+#dag .node-badge { opacity: 0; transition: opacity 200ms; pointer-events: none; }
+body[data-mode="watch"] #dag .node-badge.on { opacity: 1; }
+
+#dag .node-badge .badge-bg {
+  fill: var(--accent);
+  stroke: var(--bg-0);
+  stroke-width: 2;
+}
+#dag .node-badge .badge-text {
+  font: 700 10px var(--font-mono);
+  fill: var(--bg-0);
+  text-anchor: middle;
+  dominant-baseline: middle;
+}
+
+#dag .node-group.flash {
+  animation: node-flash 1.4s ease-out;
+}
+@keyframes node-flash {
+  0%   {
+    filter: drop-shadow(0 0 8px var(--accent))
+            drop-shadow(0 0 2px var(--accent));
+  }
+  100% { filter: none; }
+}
 
 .hint {
   margin: 8px 2px 0;
