@@ -3003,50 +3003,225 @@
     dbgPausedRole = role;
   }
 
-  // ── Conditional breakpoint evaluator (Phase 4.5.6) ──
-  // Tiny DSL : `lhs OP rhs` where lhs is a dotted path on the
-  // message envelope (typically "data.X" or "data.user.name"),
-  // OP is one of == != < > <= >=, rhs is a number, a quoted
-  // string, or a bare token (true/false/null/bare ident).
+  // ── Conditional breakpoint evaluator (Phase 4.5.6, extended in
+  // 4.5.8 with compound + membership ops to mirror the workflow
+  // `if` cond_eval syntax — same mental model both places).
   //
-  // Eval failures return TRUE (better to over-pause than to
-  // silently skip a pause the operator wanted).
+  // Grammar (recursive descent):
+  //   expr   := or
+  //   or     := and ('or'  and)*
+  //   and    := not ('and' not)*
+  //   not    := 'not' not | atom
+  //   atom   := '(' expr ')' | leaf
+  //   leaf   := path OP value
+  //           | path 'in'     '[' value (',' value)* ']'
+  //           | path 'not_in' '[' value (',' value)* ']'
+  //   path   := IDENT ('.' IDENT)*
+  //   OP     := '==' | '!=' | '<' | '>' | '<=' | '>='
+  //   value  := NUM | STR | 'true' | 'false' | 'null'
+  //
+  // Path roots :
+  //   data.X         → envelope.data.X (most common)
+  //   msg.X / envelope.X → envelope.X
+  //   bare X         → envelope.data.X (shorthand)
+  //
+  // Eval failures (parse error / type mismatch) → TRUE (better to
+  // over-pause than to silently skip a pause the operator wanted).
+  function tokenizeCond(s) {
+    const toks = []; let i = 0;
+    const len = s.length;
+    while (i < len) {
+      const c = s[i];
+      if (/\s/.test(c)) { i++; continue; }
+      if (c === '(' || c === ')' || c === '[' || c === ']' || c === ',') {
+        toks.push({ k: c, v: c }); i++; continue;
+      }
+      if (c === '"' || c === "'") {
+        const q = c; let j = i + 1; let out = '';
+        while (j < len && s[j] !== q) {
+          if (s[j] === '\\' && j + 1 < len) { out += s[j + 1]; j += 2; }
+          else { out += s[j]; j++; }
+        }
+        if (j >= len) throw new Error('unterminated string');
+        toks.push({ k: 'str', v: out }); i = j + 1; continue;
+      }
+      const op2 = s.slice(i, i + 2);
+      if (op2 === '==' || op2 === '!=' || op2 === '<=' || op2 === '>=') {
+        toks.push({ k: 'op', v: op2 }); i += 2; continue;
+      }
+      if (c === '<' || c === '>') {
+        toks.push({ k: 'op', v: c }); i++; continue;
+      }
+      if (c === '-' || c === '+' || c === '.' || (c >= '0' && c <= '9')) {
+        const m = s.slice(i).match(/^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?/);
+        if (m && m[0].length > 0 && /\d/.test(m[0])) {
+          toks.push({ k: 'num', v: parseFloat(m[0]) });
+          i += m[0].length;
+          continue;
+        }
+      }
+      if (/[a-zA-Z_]/.test(c)) {
+        const m = s.slice(i).match(/^[a-zA-Z_][a-zA-Z_0-9.]*/);
+        const w = m[0];
+        if (w === 'and' || w === 'or' || w === 'not' || w === 'in' || w === 'not_in') {
+          toks.push({ k: 'kw', v: w });
+        } else if (w === 'true' || w === 'false') {
+          toks.push({ k: 'bool', v: w === 'true' });
+        } else if (w === 'null') {
+          toks.push({ k: 'null', v: null });
+        } else {
+          toks.push({ k: 'path', v: w });
+        }
+        i += w.length;
+        continue;
+      }
+      throw new Error('unexpected character: ' + JSON.stringify(c));
+    }
+    return toks;
+  }
+
+  function parseCond(toks) {
+    let i = 0;
+    const peek = () => toks[i];
+    const eat = (k, v) => {
+      const t = toks[i];
+      if (!t || t.k !== k || (v !== undefined && t.v !== v)) {
+        throw new Error('expected ' + k + (v ? ' ' + v : '')
+                        + ' got ' + JSON.stringify(t));
+      }
+      i++; return t;
+    };
+    const parseValue = () => {
+      const t = peek();
+      if (!t) throw new Error('expected value');
+      if (t.k === 'num' || t.k === 'str' || t.k === 'bool' || t.k === 'null') {
+        i++; return t.v;
+      }
+      throw new Error('expected value, got ' + JSON.stringify(t));
+    };
+    const parseLeaf = () => {
+      const path = eat('path').v;
+      const t = peek();
+      if (t && t.k === 'kw' && (t.v === 'in' || t.v === 'not_in')) {
+        const kw = eat('kw').v;
+        eat('[');
+        const values = [];
+        if (peek() && peek().k !== ']') {
+          values.push(parseValue());
+          while (peek() && peek().k === ',') { eat(','); values.push(parseValue()); }
+        }
+        eat(']');
+        return { kind: kw, path, values };
+      }
+      // Bare path → truthy check (handles `not data.processed` and
+      // raw `data.urgent` cases). Recognised when the next token is
+      // not a comparison op : end-of-input, a closing paren, a
+      // boolean keyword (and / or), or a list-context comma.
+      if (!t || t.k === ')' || t.k === ']' || t.k === ','
+          || (t.k === 'kw' && (t.v === 'and' || t.v === 'or'))) {
+        return { kind: 'truthy', path };
+      }
+      const op = eat('op').v;
+      const rhs = parseValue();
+      return { kind: 'cmp', path, op, rhs };
+    };
+    const parseAtom = () => {
+      if (peek() && peek().k === '(') {
+        eat('('); const e = parseExpr(); eat(')'); return e;
+      }
+      return parseLeaf();
+    };
+    const parseNot = () => {
+      if (peek() && peek().k === 'kw' && peek().v === 'not') {
+        eat('kw', 'not');
+        return { kind: 'not', a: parseNot() };
+      }
+      return parseAtom();
+    };
+    const parseAnd = () => {
+      let lhs = parseNot();
+      while (peek() && peek().k === 'kw' && peek().v === 'and') {
+        eat('kw', 'and');
+        lhs = { kind: 'and', a: lhs, b: parseNot() };
+      }
+      return lhs;
+    };
+    const parseExpr = () => {
+      let lhs = parseAnd();
+      while (peek() && peek().k === 'kw' && peek().v === 'or') {
+        eat('kw', 'or');
+        lhs = { kind: 'or', a: lhs, b: parseAnd() };
+      }
+      return lhs;
+    };
+    const ast = parseExpr();
+    if (i !== toks.length) {
+      throw new Error('trailing tokens: ' + JSON.stringify(toks.slice(i)));
+    }
+    return ast;
+  }
+
+  function resolveCondPath(path, envelope) {
+    const segs = path.split('.');
+    let v;
+    if (segs[0] === 'data') v = envelope.data;
+    else if (segs[0] === 'msg' || segs[0] === 'envelope') v = envelope;
+    else v = envelope.data;
+    const start = (segs[0] === 'data' || segs[0] === 'msg' || segs[0] === 'envelope') ? 1 : 0;
+    for (let k = start; k < segs.length; k++) {
+      if (v == null) return undefined;
+      v = v[segs[k]];
+    }
+    return v;
+  }
+
+  function evalCondAst(ast, env) {
+    switch (ast.kind) {
+      case 'and': return evalCondAst(ast.a, env) && evalCondAst(ast.b, env);
+      case 'or':  return evalCondAst(ast.a, env) || evalCondAst(ast.b, env);
+      case 'not': return !evalCondAst(ast.a, env);
+      case 'truthy': return !!resolveCondPath(ast.path, env);
+      case 'cmp': {
+        const lhs = resolveCondPath(ast.path, env);
+        if (lhs === undefined) return false;  // missing field → no pause
+        const rhs = ast.rhs;
+        switch (ast.op) {
+          case '==': return lhs === rhs;
+          case '!=': return lhs !== rhs;
+          case '<':  return lhs <  rhs;
+          case '>':  return lhs >  rhs;
+          case '<=': return lhs <= rhs;
+          case '>=': return lhs >= rhs;
+        }
+        return false;
+      }
+      case 'in':     {
+        const lhs = resolveCondPath(ast.path, env);
+        return ast.values.includes(lhs);
+      }
+      case 'not_in': {
+        const lhs = resolveCondPath(ast.path, env);
+        return !ast.values.includes(lhs);
+      }
+    }
+    return false;
+  }
+
+  // Exported for tests + the modal's live-preview (window-scoped
+  // so the page console can poke at it during debugging).
+  window.__pollenBpCond = {
+    tokenize: tokenizeCond, parse: parseCond,
+    evalAst: evalCondAst, resolve: resolveCondPath,
+  };
+
   function evalCondition(exprStr, envelope) {
     if (!exprStr) return true;
-    const re = /^\s*(\S+)\s*(==|!=|<=|>=|<|>)\s*(.+?)\s*$/;
-    const m = exprStr.match(re);
-    if (!m) return true;  // parse fail → pause
-    const lhsPath = m[1];
-    const op = m[2];
-    let rhs = m[3].trim();
-    if (rhs.startsWith('"') && rhs.endsWith('"')) rhs = rhs.slice(1, -1);
-    else if (rhs.startsWith("'") && rhs.endsWith("'")) rhs = rhs.slice(1, -1);
-    else if (rhs === 'true')  rhs = true;
-    else if (rhs === 'false') rhs = false;
-    else if (rhs === 'null')  rhs = null;
-    else if (!isNaN(Number(rhs))) rhs = Number(rhs);
-    // Walk the dotted path. Conventionally the operator writes
-    // `data.X` (data being the envelope's data field), so we
-    // pivot on the first segment as a known root.
-    const segs = lhsPath.split('.');
-    let v = envelope;
-    if (segs[0] === 'data')      v = envelope.data;
-    else if (segs[0] === 'msg' || segs[0] === 'envelope') v = envelope;
-    else                          v = envelope.data;  // assume data.X shorthand
-    const start = (segs[0] === 'data' || segs[0] === 'msg' || segs[0] === 'envelope') ? 1 : 0;
-    for (let i = start; i < segs.length; i++) {
-      if (v == null) return false;  // missing field → don't pause
-      v = v[segs[i]];
+    try {
+      return evalCondAst(parseCond(tokenizeCond(exprStr)), envelope);
+    } catch (e) {
+      console.warn('breakpoint cond parse error:', e.message, 'expr:', exprStr);
+      return true;  // fail-safe — pause
     }
-    switch (op) {
-      case '==': return v === rhs;
-      case '!=': return v !== rhs;
-      case '<':  return v <  rhs;
-      case '>':  return v >  rhs;
-      case '<=': return v <= rhs;
-      case '>=': return v >= rhs;
-    }
-    return true;
   }
 
   // Fire-and-forget DEBUG_CONTINUE for a pause whose condition
@@ -3224,28 +3399,160 @@
   });
 
   // ── Breakpoints UI ──────────────────────────────────────────
-  function toggleBreakpoint(name, opts) {
-    // opts.editCondition = true → prompt the operator for a
-    // condition expression. Otherwise just toggle on/off.
-    if (opts && opts.editCondition) {
-      const existing = breakpoints.get(name);
-      const cur = (existing && existing.when) || '';
-      const next = prompt(
-        `Condition for breakpoint @${name} (leave empty = always pause)\n\n` +
-        `Examples :\n` +
-        `  data.amount > 1000\n` +
-        `  data.kind == "vip"\n` +
-        `  data.retry >= 3`,
-        cur
-      );
-      if (next === null) return;  // cancelled
-      const trimmed = next.trim();
-      if (trimmed === '' && !existing) return;  // no-op
-      breakpoints.set(name, trimmed ? { when: trimmed } : {});
-    } else {
-      if (breakpoints.has(name)) breakpoints.delete(name);
-      else breakpoints.set(name, {});
+  // ── Conditional breakpoint modal (Phase 4.5.8) ──
+  // Opens on shift+right-click ; lets the operator write a cond
+  // expression with live validation + inline help. Gracefully
+  // degrades to a prompt() if the modal markup isn't present in
+  // the page yet (e.g. server binary built before this phase).
+  const $bpCondModal   = document.getElementById('bp-cond-modal');
+  let   bpCondModalReady = false;
+  let   $bpCondRole, $bpCondInput, $bpCondStatus, $bpCondApply,
+        $bpCondCancel, $bpCondClose, $bpCondRemove, $bpCondBackdrop;
+  let   bpCondTargetRole = null;
+
+  function openBpCondModal(name) {
+    if (!bpCondModalReady) { openBpCondPromptFallback(name); return; }
+    bpCondTargetRole = name;
+    const existing = breakpoints.get(name);
+    const cur = (existing && existing.when) || '';
+    $bpCondRole.textContent = '@' + name;
+    $bpCondInput.value = cur;
+    $bpCondRemove.hidden = !cur;
+    validateBpCond();
+    $bpCondModal.hidden = false;
+    setTimeout(() => { $bpCondInput.focus(); $bpCondInput.select(); }, 0);
+  }
+
+  function openBpCondPromptFallback(name) {
+    const existing = breakpoints.get(name);
+    const cur = (existing && existing.when) || '';
+    const next = prompt(
+      `Condition for breakpoint @${name} (leave empty = always pause)\n\n` +
+      `Examples :\n` +
+      `  data.amount > 1000\n` +
+      `  data.user.tier == "vip"\n` +
+      `  data.amount > 1000 and data.user.tier == "vip"\n` +
+      `  not data.processed\n` +
+      `  data.tier in ["vip","gold"]`,
+      cur
+    );
+    if (next === null) return;
+    const trimmed = next.trim();
+    if (trimmed === '' && !existing) return;
+    breakpoints.set(name, trimmed ? { when: trimmed } : {});
+    persistBpUiChange(name);
+  }
+
+  function closeBpCondModal() {
+    if (!bpCondModalReady) return;
+    $bpCondModal.hidden = true;
+    bpCondTargetRole = null;
+  }
+
+  function validateBpCond() {
+    const expr = $bpCondInput.value.trim();
+    if (!expr) {
+      $bpCondStatus.textContent = 'Empty — breakpoint will pause unconditionally.';
+      $bpCondStatus.className = 'bp-cond-status';
+      return true;
     }
+    try {
+      window.__pollenBpCond.parse(window.__pollenBpCond.tokenize(expr));
+      $bpCondStatus.textContent = '✓ Syntax OK';
+      $bpCondStatus.className = 'bp-cond-status ok';
+      return true;
+    } catch (e) {
+      $bpCondStatus.textContent = '⚠ ' + e.message;
+      $bpCondStatus.className = 'bp-cond-status error';
+      return false;  // applies anyway — runtime fail-safe pauses
+    }
+  }
+
+  function applyBpCond() {
+    if (!bpCondTargetRole) return;
+    const expr = $bpCondInput.value.trim();
+    const name = bpCondTargetRole;
+    if (expr) {
+      breakpoints.set(name, { when: expr });
+    } else {
+      const existing = breakpoints.get(name);
+      if (existing) breakpoints.set(name, {});
+      else { closeBpCondModal(); return; }
+    }
+    closeBpCondModal();
+    persistBpUiChange(name);
+  }
+
+  function removeBpCond() {
+    if (!bpCondTargetRole) return;
+    const name = bpCondTargetRole;
+    if (breakpoints.has(name)) breakpoints.set(name, {});
+    closeBpCondModal();
+    persistBpUiChange(name);
+  }
+
+  // Common tail after toggle / cond edit — save + refresh DAG class
+  // markers + inject hint. Factored so the modal path matches the
+  // plain-toggle path.
+  function persistBpUiChange(name) {
+    saveBreakpoints();
+    syncBpSummary();
+    const e = nodeIndex.get(name);
+    if (e && e.g) {
+      e.g.classList.toggle('has-bp', breakpoints.has(name));
+      const has = breakpoints.has(name);
+      const cond = has && breakpoints.get(name).when;
+      e.g.classList.toggle('has-bp-cond', !!cond);
+    }
+    if (typeof refreshInjectHint === 'function'
+        && $injectPanel && !$injectPanel.hidden) {
+      refreshInjectHint();
+    }
+  }
+
+  if ($bpCondModal) {
+    $bpCondRole     = document.getElementById('bp-cond-role');
+    $bpCondInput    = document.getElementById('bp-cond-input');
+    $bpCondStatus   = document.getElementById('bp-cond-status');
+    $bpCondApply    = document.getElementById('bp-cond-apply');
+    $bpCondCancel   = document.getElementById('bp-cond-cancel');
+    $bpCondClose    = document.getElementById('bp-cond-close');
+    $bpCondRemove   = document.getElementById('bp-cond-remove');
+    $bpCondBackdrop = $bpCondModal.querySelector('.bp-cond-backdrop');
+    bpCondModalReady = !!($bpCondRole && $bpCondInput && $bpCondStatus
+                          && $bpCondApply && $bpCondCancel
+                          && $bpCondClose && $bpCondBackdrop);
+    if (bpCondModalReady) {
+      $bpCondInput.addEventListener('input', validateBpCond);
+      $bpCondApply.addEventListener('click', applyBpCond);
+      $bpCondCancel.addEventListener('click', closeBpCondModal);
+      $bpCondClose.addEventListener('click', closeBpCondModal);
+      $bpCondBackdrop.addEventListener('click', closeBpCondModal);
+      if ($bpCondRemove) $bpCondRemove.addEventListener('click', removeBpCond);
+      $bpCondInput.addEventListener('keydown', e => {
+        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+          e.preventDefault(); applyBpCond();
+        } else if (e.key === 'Escape') {
+          e.preventDefault(); closeBpCondModal();
+        }
+      });
+      document.addEventListener('keydown', e => {
+        if (!$bpCondModal.hidden && e.key === 'Escape') {
+          e.preventDefault(); closeBpCondModal();
+        }
+      });
+    }
+  }
+
+  function toggleBreakpoint(name, opts) {
+    // opts.editCondition = true → open the cond modal (or the
+    // prompt fallback if the modal markup isn't compiled in yet).
+    if (opts && opts.editCondition) {
+      openBpCondModal(name);
+      return;
+    }
+    if (breakpoints.has(name)) breakpoints.delete(name);
+    else breakpoints.set(name, {});
     saveBreakpoints();
     syncBpSummary();
     const e = nodeIndex.get(name);
