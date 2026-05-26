@@ -93,8 +93,18 @@
       const t = step.type;
       if (t === 'sequence') {
         let cur = frontier;
+        // The branch label (when/elseif/else/for ...) only tags the
+        // FIRST dispatchable step of the sequence — that's the
+        // conditional edge. Subsequent steps inside are reached
+        // unconditionally from there.
+        let pending = label;
         const steps = Array.isArray(step.steps) ? step.steps : [];
-        for (const s of steps) cur = walk(s, cur, label);
+        for (const s of steps) {
+          const isSet = s && typeof s === 'object' && s.type === 'set';
+          const emitLabel = isSet ? '' : pending;
+          if (!isSet) pending = '';
+          cur = walk(s, cur, emitLabel);
+        }
         return cur;
       }
       if (t === 'call') {
