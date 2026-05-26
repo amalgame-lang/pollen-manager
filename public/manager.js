@@ -415,6 +415,13 @@
     if ($tag) {
       $tag.textContent = (wf && wf.schema) ? wf.schema : '';
     }
+    // Show the Migrate button only when the loaded wf looks v1 :
+    // no `schema`, no `tree`, but nodes exist with `next:` arrays.
+    const $migrate = document.getElementById('tree-migrate');
+    if ($migrate) {
+      const hasV1Next = wf && wf.nodes && Object.values(wf.nodes).some(n => Array.isArray(n.next));
+      $migrate.hidden = !!wf && (!!wf.schema || !!wf.tree || !hasV1Next);
+    }
 
     if (!wf || !wf.tree || typeof wf.tree !== 'object') {
       $empty.hidden = false;
@@ -1060,6 +1067,83 @@
 
   const $treeValidate = document.getElementById('tree-validate');
   if ($treeValidate) $treeValidate.addEventListener('click', validateWorkflow);
+
+  // Phase 5.6 — migrate v1 → v2.
+  //
+  // v1 : `nodes: {role: {next: [...]}}` flat DAG.
+  // v2 : `nodes: [array]` + `tree: {type:"sequence", steps:[...]}`.
+  //
+  // Scope : handles the common case of a single root + linear
+  // chain + optional terminal fan_out. Diamonds and multi-root
+  // DAGs need manual editing — we surface the limit clearly.
+  function migrateV1toV2() {
+    if (!wf || !wf.nodes) {
+      setStatus('migrate : no workflow loaded', 'error');
+      return;
+    }
+    if (wf.schema || wf.tree) {
+      setStatus('already v2 (has schema or tree) — nothing to migrate', 'error');
+      return;
+    }
+
+    const keys = Object.keys(wf.nodes);
+    if (keys.length === 0) {
+      setStatus('migrate : no nodes', 'error');
+      return;
+    }
+
+    // Find roots — nodes with no incoming `next` edges.
+    const incoming = {};
+    keys.forEach(k => incoming[k] = 0);
+    for (const k of keys) {
+      for (const tgt of (wf.nodes[k].next || [])) {
+        if (incoming[tgt] !== undefined) incoming[tgt]++;
+      }
+    }
+    const roots = keys.filter(k => incoming[k] === 0);
+    if (roots.length === 0) {
+      setStatus('migrate : no root (cyclic next:) — fix the DAG first', 'error');
+      return;
+    }
+    if (roots.length > 1) {
+      setStatus(`migrate : multiple roots [${roots.join(', ')}] — only single-root chains are auto-migrated. Edit Raw JSON for diamonds.`, 'error');
+      return;
+    }
+    const root = roots[0];
+
+    // Walk : root → chain → terminal fan_out.
+    const steps = [];
+    let cur = root;
+    const visited = new Set();
+    while (cur && !visited.has(cur)) {
+      visited.add(cur);
+      steps.push({ type: 'call', node: cur });
+      const next = wf.nodes[cur].next || [];
+      if (next.length === 0) { cur = null; break; }
+      if (next.length === 1) {
+        cur = next[0];
+        continue;
+      }
+      // multi-target → terminal fan_out
+      steps.push({ type: 'fan_out', nodes: next.slice() });
+      cur = null;
+    }
+
+    // Flip the schema + drop the per-node next.
+    wf.schema = 'workflow-tree/v1';
+    wf.tree = { type: 'sequence', steps };
+    for (const k of keys) {
+      delete wf.nodes[k].next;
+    }
+
+    setSelectedStep(-1);
+    render();
+    markDirty();
+    setStatus(`migrated → v2 (${steps.length} step${steps.length === 1 ? '' : 's'}, root=${root}) — review + Save`, 'ok');
+  }
+
+  const $treeMigrate = document.getElementById('tree-migrate');
+  if ($treeMigrate) $treeMigrate.addEventListener('click', migrateV1toV2);
 
   function moveStep(delta) {
     if (selectedStepIdx < 0) return;

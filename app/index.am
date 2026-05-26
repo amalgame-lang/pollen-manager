@@ -89,6 +89,7 @@ public class Page {
             "<button id=\"tree-delete\" disabled title=\"Delete selected step\" class=\"danger\">✕</button>" +
             "<span class=\"toolbar-sep\"></span>" +
             "<button id=\"tree-validate\" title=\"Check refs + structure before Save\">✓ Validate</button>" +
+            "<button id=\"tree-migrate\" hidden title=\"Convert v1 (flat next:[]) → v2 (tree)\">⇪ Migrate v1→v2</button>" +
             "</div>" +
             "</div>" +
             "<div id=\"tree-view\">" +
