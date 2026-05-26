@@ -112,22 +112,23 @@
       }
       if (t === 'if') {
         const branches = Array.isArray(step.branches) ? step.branches : [];
-        const merged = [];
         branches.forEach((b, i) => {
           const isElse = !(b && (b.cond !== undefined || b.op !== undefined));
           const branchLabel = isElse ? 'else'
                             : (i === 0 ? 'when' : 'elseif');
-          if (b && b.then) {
-            const after = walk(b.then, frontier, branchLabel);
-            after.forEach(n => { if (merged.indexOf(n) < 0) merged.push(n); });
-          }
+          if (b && b.then) walk(b.then, frontier, branchLabel);
         });
-        return merged;
+        // Frontier dies past an if : the runtime's role walker can't
+        // resume from buried branch targets, so any step that comes
+        // after won't actually fire for them. Returning [] avoids
+        // phantom edges if the user appends more steps.
+        return [];
       }
       if (t === 'for') {
         const eff = `for ${step.var || 'item'}`;
-        const after = step.do ? walk(step.do, frontier, eff) : frontier;
-        return after;
+        if (step.do) walk(step.do, frontier, eff);
+        // Same reasoning as `if` — for.do targets are buried.
+        return [];
       }
       if (t === 'while') {
         // Self-loop on each frontier node — while continues at the
@@ -1120,34 +1121,27 @@
   const $treeFor   = document.getElementById('tree-add-for');
   const $treeWhile = document.getElementById('tree-add-while');
 
-  // Phase 5.5e — templates pre-fill with existing node names when
-  // possible, so a freshly added `if` doesn't ship with empty
-  // fan_outs that route nowhere.
+  // Templates default to EMPTY targets. Auto-filling with the
+  // first/last existing node sounded useful but in practice it
+  // creates a flood of "phantom" edges from the in-flight
+  // frontier in the SVG canvas. Operator clicks the step → edits
+  // the JSON → the new targets show up explicitly.
   function nodeKeys() {
     return (wf && wf.nodes) ? Object.keys(wf.nodes) : [];
   }
-  function pickN(n) {
-    const keys = nodeKeys();
-    return keys.slice(0, n);
-  }
   if ($treeIf) {
-    $treeIf.addEventListener('click', () => {
-      const keys = nodeKeys();
-      const fallback = keys[0] || '?';
-      appendStep({
-        type: 'if',
-        branches: [
-          {
-            cond: { op: '==', var: 'data.kind', value: 'vip' },
-            then: { type: 'fan_out', nodes: pickN(1).length ? pickN(1) : [fallback] }
-          },
-          {
-            then: { type: 'fan_out',
-                    nodes: keys.length >= 2 ? [keys[keys.length - 1]] : [fallback] }
-          }
-        ]
-      }, 'if');
-    });
+    $treeIf.addEventListener('click', () => appendStep({
+      type: 'if',
+      branches: [
+        {
+          cond: { op: '==', var: 'data.kind', value: 'vip' },
+          then: { type: 'fan_out', nodes: [] }
+        },
+        {
+          then: { type: 'fan_out', nodes: [] }
+        }
+      ]
+    }, 'if'));
   }
   if ($treeSet) {
     $treeSet.addEventListener('click', () => appendStep({
@@ -1157,15 +1151,12 @@
     }, 'set'));
   }
   if ($treeFor) {
-    $treeFor.addEventListener('click', () => {
-      const fallback = nodeKeys()[0] || '?';
-      appendStep({
-        type: 'for',
-        var: 'item',
-        in: [],
-        do: { type: 'call', node: fallback }
-      }, 'for');
-    });
+    $treeFor.addEventListener('click', () => appendStep({
+      type: 'for',
+      var: 'item',
+      in: [],
+      do: { type: 'call', node: '' }
+    }, 'for'));
   }
   if ($treeWhile) {
     $treeWhile.addEventListener('click', () => appendStep({
