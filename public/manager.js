@@ -770,9 +770,10 @@
       return wrapper;
     }
 
-    // ── Leaf : 3 inputs + wrap buttons ──
+    // ── Leaf : var | op | value (or values chips for in/not_in) ──
     const leaf = (c && typeof c === 'object') ? c : { op: '==', var: '', value: '' };
     parent[key] = leaf;
+    const isMembership = (leaf.op === 'in' || leaf.op === 'not_in');
 
     const varInput = document.createElement('input');
     varInput.type = 'text';
@@ -782,22 +783,41 @@
 
     const opSelect = document.createElement('select');
     opSelect.className = 'cond-op';
-    ['==', '!=', '<', '>', '<=', '>='].forEach(op => {
+    [
+      ['==', '=='],
+      ['!=', '≠'],
+      ['<',  '<'],
+      ['>',  '>'],
+      ['<=', '≤'],
+      ['>=', '≥'],
+      ['in', 'in'],
+      ['not_in', 'not in'],
+    ].forEach(([v, lbl]) => {
       const o = document.createElement('option');
-      o.value = op;
-      o.textContent = op;
-      if ((leaf.op || '==') === op) o.selected = true;
+      o.value = v;
+      o.textContent = lbl;
+      if ((leaf.op || '==') === v) o.selected = true;
       opSelect.appendChild(o);
     });
     opSelect.addEventListener('change', () => {
+      const prev = leaf.op;
       leaf.op = opSelect.value;
+      const becomesMembership = (leaf.op === 'in' || leaf.op === 'not_in');
+      const wasMembership = (prev === 'in' || prev === 'not_in');
+      if (becomesMembership && !wasMembership) {
+        // Move scalar value into values list (1-element if defined).
+        leaf.values = (leaf.value !== undefined && leaf.value !== '')
+          ? [leaf.value] : [];
+        delete leaf.value;
+      } else if (!becomesMembership && wasMembership) {
+        // Collapse values back to scalar.
+        leaf.value = (leaf.values && leaf.values[0] !== undefined) ? leaf.values[0] : '';
+        delete leaf.values;
+      }
       markDirty();
+      render();
     });
 
-    const valInput = document.createElement('input');
-    valInput.type = 'text';
-    valInput.className = 'cond-val';
-    valInput.placeholder = 'value';
     function valToStr(v) {
       if (v === true) return 'true';
       if (v === false) return 'false';
@@ -813,11 +833,50 @@
       if (s !== '' && !Number.isNaN(n) && /^-?\d+(\.\d+)?$/.test(s)) return n;
       return s;
     }
-    valInput.value = valToStr(leaf.value);
-    valInput.addEventListener('input', () => {
-      leaf.value = strToVal(valInput.value);
-      markDirty();
-    });
+
+    let valWidget;
+    if (isMembership) {
+      // chip list for `values`
+      valWidget = document.createElement('span');
+      valWidget.className = 'cond-val-chips chips';
+      if (!Array.isArray(leaf.values)) leaf.values = [];
+      leaf.values.forEach((item, i) => {
+        const c = document.createElement('span');
+        c.className = 'chip chip-lit';
+        c.textContent = valToStr(item);
+        const x = document.createElement('button');
+        x.type = 'button'; x.className = 'chip-x'; x.textContent = '×';
+        x.addEventListener('click', () => {
+          leaf.values.splice(i, 1);
+          markDirty(); render();
+        });
+        c.appendChild(x);
+        valWidget.appendChild(c);
+      });
+      const adder = document.createElement('input');
+      adder.type = 'text';
+      adder.className = 'chip-add chip-add-text';
+      adder.placeholder = '+ value';
+      adder.addEventListener('keydown', ev => {
+        if (ev.key !== 'Enter') return;
+        ev.preventDefault();
+        const raw = adder.value.trim();
+        if (!raw) return;
+        leaf.values.push(strToVal(raw));
+        markDirty(); render();
+      });
+      valWidget.appendChild(adder);
+    } else {
+      valWidget = document.createElement('input');
+      valWidget.type = 'text';
+      valWidget.className = 'cond-val';
+      valWidget.placeholder = 'value';
+      valWidget.value = valToStr(leaf.value);
+      valWidget.addEventListener('input', () => {
+        leaf.value = strToVal(valWidget.value);
+        markDirty();
+      });
+    }
 
     // Wrap buttons : AND / OR / NOT.
     const andBtn = document.createElement('button');
@@ -850,7 +909,7 @@
       markDirty(); render();
     });
 
-    wrapper.append(varInput, opSelect, valInput, andBtn, orBtn, notBtn);
+    wrapper.append(varInput, opSelect, valWidget, andBtn, orBtn, notBtn);
     return wrapper;
   }
 
