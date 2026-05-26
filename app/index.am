@@ -66,7 +66,8 @@ public class Page {
             "<div class=\"toolbar\">" +
             "<button id=\"add-node\">+ Add node</button>" +
             "<button id=\"delete-node\" disabled>Delete selected</button>" +
-            "<button id=\"dag-relayout\" title=\"Recompute node positions from current tree topology\">↻ Re-layout</button>" +
+            "<button id=\"dag-relayout\" title=\"Recompute node positions from current tree topology + groups\">↻ Re-layout</button>" +
+            "<button id=\"dag-reset-view\" title=\"Reset zoom + pan\">⌂ Reset view</button>" +
             "</div>" +
             "</div>" +
             "<svg id=\"dag\" viewBox=\"0 0 1600 900\" preserveAspectRatio=\"xMidYMid meet\"></svg>" +
