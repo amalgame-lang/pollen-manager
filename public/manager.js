@@ -454,7 +454,14 @@
   }
 
   function refreshRaw() {
-    $src.value = JSON.stringify(wf, null, 2);
+    // Show v2 workflows in their array-of-nodes form so what the
+    // user sees in Raw JSON matches what gets written to disk.
+    let view = wf;
+    if (isV2Schema(wf) && wf && wf.nodes && !Array.isArray(wf.nodes)) {
+      view = Object.assign({}, wf);
+      view.nodes = nodesObjectToArray(wf.nodes);
+    }
+    $src.value = JSON.stringify(view, null, 2);
   }
 
   // ── incremental drag update (no full render) ────────────────
@@ -652,6 +659,41 @@
     render();
   }
 
+  // ── schema v1↔v2 nodes normalization ────────────────────────
+  //
+  // v1 : "nodes": { "<label>": {host, port, …} }      object
+  // v2 : "nodes": [ {id, label, host, port, …}, … ]   array
+  //
+  // The in-memory model stays in v1 shape (object keyed by label)
+  // so all the existing render / addNode / inspector code keeps
+  // working. We convert at the load/save boundaries based on the
+  // top-level `schema` field (v2 if it starts with "workflow-tree/").
+  function isV2Schema(w) {
+    return w && typeof w.schema === 'string'
+        && w.schema.indexOf('workflow-tree/') === 0;
+  }
+  function nodesArrayToObject(arr) {
+    const out = {};
+    arr.forEach(entry => {
+      if (!entry || typeof entry !== 'object') return;
+      const key = entry.label || entry.id;
+      if (!key) return;
+      const copy = Object.assign({}, entry);
+      delete copy.label;
+      out[key] = copy;
+    });
+    return out;
+  }
+  function nodesObjectToArray(obj) {
+    return Object.keys(obj).map(k => {
+      const copy = Object.assign({}, obj[k]);
+      const out = { label: k };
+      if (copy.id) { out.id = copy.id; delete copy.id; }
+      else { out.id = 'n-' + k; }
+      return Object.assign(out, copy);
+    });
+  }
+
   // ── load / save ─────────────────────────────────────────────
   async function load() {
     setStatus('loading…');
@@ -664,6 +706,11 @@
       }
       wf = JSON.parse(txt);
       if (!wf.nodes) wf.nodes = {};
+      // v2 arrives as an array — flatten into the object form
+      // the rest of the manager expects.
+      if (Array.isArray(wf.nodes)) {
+        wf.nodes = nodesArrayToObject(wf.nodes);
+      }
       selected = null;
       $delete.disabled = true;
       markClean();
@@ -678,7 +725,13 @@
   async function save() {
     setStatus('saving…');
     try {
-      const body = JSON.stringify(wf, null, 2);
+      // For v2 workflows, restore the array shape on the way out
+      // so the runtime side sees a valid v2 file.
+      const out = Object.assign({}, wf);
+      if (isV2Schema(wf) && wf.nodes && !Array.isArray(wf.nodes)) {
+        out.nodes = nodesObjectToArray(wf.nodes);
+      }
+      const body = JSON.stringify(out, null, 2);
       const r = await fetch('/api/workflow', {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
@@ -794,6 +847,12 @@
         }
         // Preserve _layout if not present in pasted JSON.
         if (!parsed._layout && wf && wf._layout) parsed._layout = wf._layout;
+        // Normalize v2 nodes array → object so the rest of the
+        // manager works on either schema.
+        if (Array.isArray(parsed.nodes)) {
+          parsed.nodes = nodesArrayToObject(parsed.nodes);
+        }
+        if (!parsed.nodes) parsed.nodes = {};
         wf = parsed;
         render();
         markDirty();
