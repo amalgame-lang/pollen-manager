@@ -157,6 +157,8 @@ public class Page {
             "</form>" +
             "</section>" +
             "<div class=\"actions\">" +
+            "<button id=\"undo\" disabled title=\"Undo (Ctrl+Z)\">↶ Undo</button>" +
+            "<button id=\"redo\" disabled title=\"Redo (Ctrl+Y or Ctrl+Shift+Z)\">↷ Redo</button>" +
             "<button id=\"save\">Save</button>" +
             "<button id=\"reload\">Reload</button>" +
             "<span id=\"status\"></span>" +
