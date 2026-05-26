@@ -1452,6 +1452,44 @@
     syncInspector();
   }
 
+  // Phase 5.7.3 — chip-list editor inside the inspector. Replaces
+  // comma-separated text inputs. Each chip is removable ; an inline
+  // <input> at the end accepts a new value on Enter and appends.
+  function renderChipsInto(container, getList, setList) {
+    container.innerHTML = '';
+    const list = getList() || [];
+    list.forEach((item, i) => {
+      const c = document.createElement('span');
+      c.className = 'chip';
+      c.textContent = item;
+      const x = document.createElement('button');
+      x.type = 'button'; x.className = 'chip-x'; x.textContent = '×';
+      x.addEventListener('click', ev => {
+        ev.stopPropagation();
+        const next = list.slice(); next.splice(i, 1);
+        setList(next);
+        renderChipsInto(container, getList, setList);
+      });
+      c.appendChild(x);
+      container.appendChild(c);
+    });
+    const inp = document.createElement('input');
+    inp.type = 'text';
+    inp.className = 'chip-add chip-add-text';
+    inp.placeholder = container.dataset.placeholder || '+ item';
+    inp.addEventListener('keydown', ev => {
+      if (ev.key !== 'Enter') return;
+      ev.preventDefault();
+      const v = inp.value.trim();
+      if (!v) return;
+      const cur = getList() || [];
+      if (cur.indexOf(v) >= 0) { inp.value = ''; return; }
+      setList(cur.concat([v]));
+      renderChipsInto(container, getList, setList);
+    });
+    container.appendChild(inp);
+  }
+
   function syncInspector() {
     if (!selected || !wf.nodes[selected]) {
       $form.hidden = true;
@@ -1464,9 +1502,18 @@
     $fName.value  = selected;
     $fHost.value  = n.host  || '';
     $fPort.value  = n.port  || '';
-    $fCons.value  = (n.consumes || []).join(', ');
-    $fEmits.value = (n.emits    || []).join(', ');
-    $fNext.value  = (n.next     || []).join(', ');
+    renderChipsInto($fCons,  () => n.consumes || [],
+                              vs => setOrDeleteArray(n, 'consumes', vs));
+    renderChipsInto($fEmits, () => n.emits || [],
+                              vs => setOrDeleteArray(n, 'emits', vs));
+    // `next` is v1-only — v2 workflows store routing in `tree`.
+    const $nextRow = document.getElementById('f-next-row');
+    const isV2 = isV2Schema(wf) || (wf && wf.tree);
+    if ($nextRow) $nextRow.style.display = isV2 ? 'none' : '';
+    if (!isV2) {
+      renderChipsInto($fNext, () => n.next || [],
+                              vs => setOrDeleteArray(n, 'next', vs));
+    }
   }
 
   function applyForm() {
@@ -1485,9 +1532,9 @@
     const port = Number($fPort.value);
     if (host) n.host = host; else delete n.host;
     if (port) n.port = port; else delete n.port;
-    setOrDeleteArray(n, 'consumes', splitList($fCons.value));
-    setOrDeleteArray(n, 'emits',    splitList($fEmits.value));
-    setOrDeleteArray(n, 'next',     splitList($fNext.value));
+    // Phase 5.7.3 — consumes / emits / next are edited via the
+    // chip widgets, which mutate wf.nodes directly on each
+    // add/remove. Nothing left to collect from form inputs.
 
     if (newName !== selected) {
       wf.nodes[newName] = n;
