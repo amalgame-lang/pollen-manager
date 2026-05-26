@@ -23,6 +23,7 @@
   const $fName    = document.getElementById('f-name');
   const $fHost    = document.getElementById('f-host');
   const $fPort    = document.getElementById('f-port');
+  const $fGroup   = document.getElementById('f-group');
   const $fCons    = document.getElementById('f-consumes');
   const $fEmits   = document.getElementById('f-emits');
   const $fNext    = document.getElementById('f-next');
@@ -280,7 +281,44 @@
 
     // Pre-register nodes so we can index edges.
     for (const k of Object.keys(wf.nodes)) {
-      nodeIndex.set(k, { g: null, edgesFrom: [], edgesTo: [] });
+      nodeIndex.set(k, { g: null, edgesFrom: [], edgesTo: [], groupName: wf.nodes[k].group || null });
+    }
+
+    // Phase 5.7.6 — group hulls. Group nodes by their `.group`
+    // property, draw a translucent rounded rect behind each group's
+    // bounding box + a label at top-left. Hulls sit between the
+    // background grid and the edges so edges remain readable.
+    const groups = new Map();
+    for (const [k, n] of Object.entries(wf.nodes)) {
+      if (!n.group) continue;
+      if (!groups.has(n.group)) groups.set(n.group, []);
+      groups.get(n.group).push(k);
+    }
+    groupHulls.clear();
+    const GROUP_COLORS = [
+      '#f5b400', '#6c9af0', '#f87171', '#a5d6a7',
+      '#b39ddb', '#f48fb1', '#90caf9', '#ffb74d',
+    ];
+    let groupIdx = 0;
+    for (const [name, members] of groups) {
+      const color = GROUP_COLORS[groupIdx % GROUP_COLORS.length];
+      const rect = document.createElementNS(SVG_NS, 'rect');
+      rect.setAttribute('class', 'group-hull');
+      rect.setAttribute('rx', 8);
+      rect.setAttribute('fill', color);
+      rect.setAttribute('fill-opacity', '0.07');
+      rect.setAttribute('stroke', color);
+      rect.setAttribute('stroke-opacity', '0.40');
+      rect.setAttribute('stroke-dasharray', '4 3');
+      $svg.appendChild(rect);
+      const lbl = document.createElementNS(SVG_NS, 'text');
+      lbl.setAttribute('class', 'group-label');
+      lbl.setAttribute('fill', color);
+      lbl.textContent = name;
+      $svg.appendChild(lbl);
+      groupHulls.set(name, { rect, lbl, members });
+      computeGroupHull(name);
+      groupIdx++;
     }
 
     // Phase 5.7 polish — map sets onto the role that executes them
@@ -577,6 +615,61 @@
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;');
+  }
+
+  // Phase 5.7.6 — group hull elements indexed by group name.
+  // Populated by render() ; live-updated by moveNode so the hull
+  // tracks a node being dragged in real time.
+  const groupHulls = new Map();
+  const GROUP_PAD = 16;
+
+  function computeGroupHull(name) {
+    const g = groupHulls.get(name);
+    if (!g) return;
+    const xs = []; const ys = [];
+    for (const m of g.members) {
+      const p = wf && wf._layout && wf._layout[m];
+      if (!p) continue;
+      xs.push(p.x); ys.push(p.y);
+    }
+    if (!xs.length) return;
+    const minX = Math.min(...xs) - NODE_W / 2 - GROUP_PAD;
+    const maxX = Math.max(...xs) + NODE_W / 2 + GROUP_PAD;
+    const minY = Math.min(...ys) - NODE_H / 2 - GROUP_PAD - 12;
+    const maxY = Math.max(...ys) + NODE_H / 2 + GROUP_PAD;
+    g.rect.setAttribute('x', minX);
+    g.rect.setAttribute('y', minY);
+    g.rect.setAttribute('width', maxX - minX);
+    g.rect.setAttribute('height', maxY - minY);
+    g.lbl.setAttribute('x', minX + 8);
+    g.lbl.setAttribute('y', minY + 14);
+  }
+
+  // Phase 5.7.6 — collapsible blocks for scalability. Step objects
+  // in this set render their body hidden ; click on the ▶/▼ toggle
+  // adds/removes from the set + flips the .collapsed class. WeakSet
+  // because step objects are mutated, not replaced, between renders
+  // — collapse state survives until a wf reload.
+  const collapsedSteps = new WeakSet();
+
+  function addCollapseToggle(block, head, step, bodyClassName) {
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'block-collapse';
+    const initial = collapsedSteps.has(step);
+    toggle.textContent = initial ? '▶' : '▼';
+    toggle.title = 'Collapse / expand';
+    if (initial) block.classList.add('collapsed');
+    toggle.addEventListener('click', ev => {
+      ev.stopPropagation();
+      const isCollapsed = block.classList.toggle('collapsed');
+      if (isCollapsed) collapsedSteps.add(step);
+      else collapsedSteps.delete(step);
+      toggle.textContent = isCollapsed ? '▶' : '▼';
+    });
+    // Insert as the first child of head so the arrow sits before
+    // the keyword.
+    head.insertBefore(toggle, head.firstChild);
   }
 
   // Phase 5.7 — WYSIWYG block renderer.
@@ -1120,6 +1213,7 @@
     head.innerHTML = '<span class="block-kw">if</span>';
     if (deletable) head.appendChild(makeDeleteBtn(deletable));
     block.appendChild(head);
+    addCollapseToggle(block, head, step);
 
     const body = document.createElement('div');
     body.className = 'block-body';
@@ -1197,6 +1291,8 @@
     const head = document.createElement('div');
     head.className = 'block-head';
     head.innerHTML = '<span class="block-kw">for</span>';
+    // Toggle added AFTER head fills (call signature differs from
+    // buildIf since for's head is assembled inline below).
 
     const varInput = document.createElement('input');
     varInput.type = 'text';
@@ -1247,6 +1343,7 @@
 
     if (deletable) head.appendChild(makeDeleteBtn(deletable));
     block.appendChild(head);
+    addCollapseToggle(block, head, step);
 
     // body : the do action.
     const body = document.createElement('div');
@@ -1495,6 +1592,8 @@
       line.setAttribute('y2', y);
       updateEdgeLabel(line);
     }
+    // Phase 5.7.6 — group hull follows the dragged node.
+    if (entry.groupName) computeGroupHull(entry.groupName);
   }
 
   // Phase 5.7.5 — reposition the label attached to a <line> /
@@ -1643,6 +1742,7 @@
     $fName.value  = selected;
     $fHost.value  = n.host  || '';
     $fPort.value  = n.port  || '';
+    if ($fGroup) $fGroup.value = n.group || '';
     renderChipsInto($fCons,  () => n.consumes || [],
                               vs => setOrDeleteArray(n, 'consumes', vs));
     renderChipsInto($fEmits, () => n.emits || [],
@@ -1673,6 +1773,10 @@
     const port = Number($fPort.value);
     if (host) n.host = host; else delete n.host;
     if (port) n.port = port; else delete n.port;
+    if ($fGroup) {
+      const grp = $fGroup.value.trim();
+      if (grp) n.group = grp; else delete n.group;
+    }
     // Phase 5.7.3 — consumes / emits / next are edited via the
     // chip widgets, which mutate wf.nodes directly on each
     // add/remove. Nothing left to collect from form inputs.

@@ -123,6 +123,7 @@ public class Page {
             "<label>Name <input id=\"f-name\" type=\"text\"></label>" +
             "<label>Host <input id=\"f-host\" type=\"text\" placeholder=\"127.0.0.1\"></label>" +
             "<label>Port <input id=\"f-port\" type=\"number\"></label>" +
+            "<label>Group <input id=\"f-group\" type=\"text\" placeholder=\"(optional — visually grouped in DAG)\"></label>" +
             "<label>Consumes <div id=\"f-consumes\" class=\"chips chips-input\" data-placeholder=\"topic + Enter\"></div></label>" +
             "<label>Emits <div id=\"f-emits\" class=\"chips chips-input\" data-placeholder=\"topic + Enter\"></div></label>" +
             "<label id=\"f-next-row\">Next <div id=\"f-next\" class=\"chips chips-input\" data-placeholder=\"node + Enter\"></div></label>" +
