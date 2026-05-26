@@ -919,6 +919,105 @@
     return block;
   }
 
+  // Phase 5.7.2 — recursive expression builder for set.value.
+  //
+  // Same shape as the runtime Expr evaluator (Phase 5.3.1) :
+  //   {const: <literal>}        — number / string / true / false / null
+  //   {var:   "data.X|state.X"}  — variable reference
+  //   {op:"+|-|*|/", left:Expr, right:Expr}   — arithmetic
+  //
+  // The root <select> picks the form ; switching wipes irrelevant
+  // fields and inserts defaults for the new shape.
+  function buildExprEditor(parent, key) {
+    const wrapper = document.createElement('span');
+    wrapper.className = 'expr-editor';
+    let e = parent[key];
+    if (e === undefined || e === null) e = parent[key] = { const: 0 };
+    if (typeof e !== 'object') e = parent[key] = { const: e };
+
+    // Detect form.
+    let form;
+    if (e.op === '+' || e.op === '-' || e.op === '*' || e.op === '/') form = e.op;
+    else if ('var' in e) form = 'var';
+    else form = 'const';
+
+    // Form selector.
+    const sel = document.createElement('select');
+    sel.className = 'expr-form';
+    [
+      ['const', 'const'],
+      ['var',   'var'],
+      ['+',     '+'],
+      ['-',     '−'],
+      ['*',     '×'],
+      ['/',     '÷'],
+    ].forEach(([val, lbl]) => {
+      const o = document.createElement('option');
+      o.value = val; o.textContent = lbl;
+      if (val === form) o.selected = true;
+      sel.appendChild(o);
+    });
+    sel.addEventListener('change', () => {
+      const next = sel.value;
+      if (next === 'const') parent[key] = { const: 0 };
+      else if (next === 'var') parent[key] = { var: 'state.X' };
+      else parent[key] = { op: next, left: { var: 'state.X' }, right: { const: 1 } };
+      markDirty(); render();
+    });
+    wrapper.appendChild(sel);
+
+    if (form === 'const') {
+      const val = e.const;
+      const inp = document.createElement('input');
+      inp.type = 'text';
+      inp.className = 'expr-const-val';
+      inp.placeholder = 'number / string / true / false';
+      function valToStr(v) {
+        if (v === true) return 'true';
+        if (v === false) return 'false';
+        if (v === null) return 'null';
+        if (typeof v === 'string') return v;
+        return String(v);
+      }
+      function strToVal(s) {
+        if (s === 'true') return true;
+        if (s === 'false') return false;
+        if (s === 'null') return null;
+        const n = Number(s);
+        if (s !== '' && !Number.isNaN(n) && /^-?\d+(\.\d+)?$/.test(s)) return n;
+        return s;
+      }
+      inp.value = valToStr(val);
+      inp.addEventListener('input', () => {
+        e.const = strToVal(inp.value);
+        markDirty();
+      });
+      wrapper.appendChild(inp);
+    } else if (form === 'var') {
+      const inp = document.createElement('input');
+      inp.type = 'text';
+      inp.className = 'expr-var';
+      inp.placeholder = 'data.X or state.X';
+      liveBind(inp, () => e.var || '', v => e.var = v);
+      wrapper.appendChild(inp);
+    } else {
+      // Binary op : left + right are themselves expressions.
+      const group = document.createElement('span');
+      group.className = 'expr-binop';
+      if (!e.left)  e.left  = { var: 'state.X' };
+      if (!e.right) e.right = { const: 1 };
+      group.appendChild(buildExprEditor(e, 'left'));
+      const opLbl = document.createElement('span');
+      opLbl.className = 'expr-op-glyph';
+      opLbl.textContent = ({ '+':'+', '-':'−', '*':'×', '/':'÷' })[form];
+      group.appendChild(opLbl);
+      group.appendChild(buildExprEditor(e, 'right'));
+      wrapper.appendChild(group);
+    }
+
+    return wrapper;
+  }
+
   function buildSet(step, deletable) {
     const block = document.createElement('div');
     block.className = 'block block-set';
@@ -938,22 +1037,11 @@
     eq.className = 'block-eq';
     head.appendChild(eq);
 
-    // Value : show as textarea for the JSON expr (covers const +
-    // var + arithmetic). Phase 5.7.1 will get a proper expr builder.
-    const valTA = document.createElement('textarea');
-    valTA.rows = 1;
-    valTA.className = 'set-value';
-    valTA.placeholder = '{"const": 0}  /  {"var":"state.X"}  /  {"op":"+","left":...,"right":...}';
-    valTA.value = JSON.stringify(step.value === undefined ? { const: 0 } : step.value);
-    valTA.addEventListener('change', () => {
-      try {
-        step.value = JSON.parse(valTA.value);
-        markDirty();
-      } catch (e) {
-        setStatus('set value parse error : ' + e.message, 'error');
-      }
-    });
-    head.appendChild(valTA);
+    // Phase 5.7.2 — recursive expr builder (const / var / arithm)
+    // replaces the JSON textarea. Operator picks the form via a
+    // dropdown ; arithmetic binds two nested expressions.
+    if (step.value === undefined) step.value = { const: 0 };
+    head.appendChild(buildExprEditor(step, 'value'));
 
     if (deletable) head.appendChild(makeDeleteBtn(deletable));
     block.appendChild(head);
