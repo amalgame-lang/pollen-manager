@@ -502,105 +502,582 @@
       .replace(/>/g, '&gt;');
   }
 
+  // Phase 5.7 — WYSIWYG block renderer.
+  //
+  // Replaces the textual outline + JSON step editor with inline
+  // form widgets per step type. Each input mutates `wf` in place ;
+  // text edits are live (no re-render so focus is preserved), while
+  // structural changes (add/delete branch, change step type, etc)
+  // call render() + markDirty().
+
+  // Live update of a text field — no re-render, no focus loss.
+  function liveBind(input, getter, setter) {
+    input.value = getter();
+    input.addEventListener('input', () => {
+      setter(input.value);
+      markDirty();
+      // Status only — DAG topology may shift but we skip the
+      // structural re-render to keep the caret position.
+    });
+    input.addEventListener('change', () => {
+      // On commit (blur, Enter): full re-render so the DAG canvas
+      // reflects renamed targets etc.
+      setter(input.value);
+      markDirty();
+      render();
+    });
+  }
+
+  function nodeOptionsHtml(selected, includeEmpty) {
+    const keys = nodeKeys();
+    let html = includeEmpty ? '<option value=""></option>' : '';
+    for (const k of keys) {
+      const sel = k === selected ? ' selected' : '';
+      html += `<option value="${escapeAttr(k)}"${sel}>${escapeHtml(k)}</option>`;
+    }
+    // If `selected` isn't in the current node list, still show it
+    // so we don't silently lose the reference.
+    if (selected && keys.indexOf(selected) < 0) {
+      html += `<option value="${escapeAttr(selected)}" selected>${escapeHtml(selected)} (unknown)</option>`;
+    }
+    return html;
+  }
+
+  function makeDeleteBtn(onClick, label) {
+    const b = document.createElement('button');
+    b.className = 'block-del';
+    b.type = 'button';
+    b.innerHTML = label || '✕';
+    b.title = 'Delete';
+    b.addEventListener('click', ev => { ev.stopPropagation(); onClick(); });
+    return b;
+  }
+
+  function makeAddBtn(text, onClick) {
+    const b = document.createElement('button');
+    b.className = 'block-add';
+    b.type = 'button';
+    b.textContent = text;
+    b.addEventListener('click', ev => { ev.stopPropagation(); onClick(); });
+    return b;
+  }
+
+  // Cond builder : renders a leaf cond {op, var, value} inline.
+  // Composite (and/or/not) shown read-only with a "edit JSON"
+  // fallback — composite editing is Phase 5.7.1.
+  function buildCondEditor(parent, key) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'cond-editor';
+    const c = parent[key];
+    // Composite — show as JSON pill (read-only for now).
+    if (c && typeof c === 'object' && (c.op === 'and' || c.op === 'or' || c.op === 'not')) {
+      wrapper.classList.add('cond-composite');
+      const summary = document.createElement('span');
+      summary.className = 'cond-composite-summary';
+      summary.innerHTML = summarizeCondExpr(c);
+      wrapper.appendChild(summary);
+      const editBtn = document.createElement('button');
+      editBtn.type = 'button';
+      editBtn.className = 'block-add';
+      editBtn.textContent = '✎ JSON';
+      editBtn.title = 'Composite conds still edit via JSON for now';
+      editBtn.addEventListener('click', () => {
+        const txt = prompt('Composite cond JSON:', JSON.stringify(c, null, 2));
+        if (txt == null) return;
+        try {
+          parent[key] = JSON.parse(txt);
+          markDirty();
+          render();
+        } catch (e) { setStatus('cond parse error: ' + e.message, 'error'); }
+      });
+      wrapper.appendChild(editBtn);
+      const toLeaf = document.createElement('button');
+      toLeaf.type = 'button';
+      toLeaf.className = 'block-add';
+      toLeaf.textContent = '↺ leaf';
+      toLeaf.title = 'Reset to a single comparison';
+      toLeaf.addEventListener('click', () => {
+        parent[key] = { op: '==', var: 'data.X', value: '' };
+        markDirty();
+        render();
+      });
+      wrapper.appendChild(toLeaf);
+      return wrapper;
+    }
+    // Leaf — var input + op dropdown + value input.
+    const leaf = (c && typeof c === 'object') ? c : { op: '==', var: '', value: '' };
+    parent[key] = leaf;
+
+    const varInput = document.createElement('input');
+    varInput.type = 'text';
+    varInput.className = 'cond-var';
+    varInput.placeholder = 'data.X or state.X';
+    liveBind(varInput, () => leaf.var || '', v => leaf.var = v);
+
+    const opSelect = document.createElement('select');
+    opSelect.className = 'cond-op';
+    ['==', '!=', '<', '>', '<=', '>='].forEach(op => {
+      const o = document.createElement('option');
+      o.value = op;
+      o.textContent = op;
+      if ((leaf.op || '==') === op) o.selected = true;
+      opSelect.appendChild(o);
+    });
+    opSelect.addEventListener('change', () => {
+      leaf.op = opSelect.value;
+      markDirty();
+    });
+
+    const valInput = document.createElement('input');
+    valInput.type = 'text';
+    valInput.className = 'cond-val';
+    valInput.placeholder = 'value (string/number/true/false)';
+    // value can be string/number/bool — store as typed JSON.
+    function valToStr(v) {
+      if (v === true) return 'true';
+      if (v === false) return 'false';
+      if (v === null) return 'null';
+      if (typeof v === 'string') return v;
+      return String(v);
+    }
+    function strToVal(s) {
+      if (s === 'true') return true;
+      if (s === 'false') return false;
+      if (s === 'null') return null;
+      // Number ?
+      const n = Number(s);
+      if (s !== '' && !Number.isNaN(n) && /^-?\d+(\.\d+)?$/.test(s)) return n;
+      return s;
+    }
+    valInput.value = valToStr(leaf.value);
+    valInput.addEventListener('input', () => {
+      leaf.value = strToVal(valInput.value);
+      markDirty();
+    });
+
+    // To composite : wrap current leaf inside an `and` so user can
+    // add more clauses.
+    const composeBtn = document.createElement('button');
+    composeBtn.type = 'button';
+    composeBtn.className = 'block-add';
+    composeBtn.textContent = '+ AND';
+    composeBtn.title = 'Wrap with AND for adding more conditions';
+    composeBtn.addEventListener('click', () => {
+      parent[key] = { op: 'and', args: [Object.assign({}, leaf), { op: '==', var: 'data.X', value: '' }] };
+      markDirty();
+      render();
+    });
+
+    wrapper.append(varInput, opSelect, valInput, composeBtn);
+    return wrapper;
+  }
+
+  // === per-step block builders ==============================
+  function buildCall(step, parentRef, parentKey, deletable) {
+    const block = document.createElement('div');
+    block.className = 'block block-call';
+    const head = document.createElement('div');
+    head.className = 'block-head';
+    head.innerHTML = '<span class="block-kw">call</span> →';
+
+    const sel = document.createElement('select');
+    sel.className = 'role-select';
+    sel.innerHTML = nodeOptionsHtml(step.node, false);
+    sel.addEventListener('change', () => {
+      step.node = sel.value;
+      markDirty();
+      render();
+    });
+    head.appendChild(sel);
+
+    if (deletable) head.appendChild(makeDeleteBtn(deletable));
+    block.appendChild(head);
+    return block;
+  }
+
+  function buildFanOut(step, deletable) {
+    const block = document.createElement('div');
+    block.className = 'block block-fan-out';
+    const head = document.createElement('div');
+    head.className = 'block-head';
+    head.innerHTML = '<span class="block-kw">fan_out</span> →';
+
+    const chips = document.createElement('div');
+    chips.className = 'chips';
+    const nodes = Array.isArray(step.nodes) ? step.nodes : (step.nodes = []);
+    nodes.forEach((n, i) => {
+      const c = document.createElement('span');
+      c.className = 'chip';
+      c.textContent = n;
+      const x = document.createElement('button');
+      x.type = 'button'; x.className = 'chip-x'; x.textContent = '×';
+      x.title = 'Remove';
+      x.addEventListener('click', ev => {
+        ev.stopPropagation();
+        nodes.splice(i, 1);
+        markDirty(); render();
+      });
+      c.appendChild(x);
+      chips.appendChild(c);
+    });
+    const adder = document.createElement('select');
+    adder.className = 'chip-add';
+    adder.innerHTML = '<option value="">+ add target…</option>' + nodeOptionsHtml('', false);
+    adder.addEventListener('change', () => {
+      const v = adder.value;
+      if (!v) return;
+      if (nodes.indexOf(v) < 0) nodes.push(v);
+      markDirty(); render();
+    });
+    chips.appendChild(adder);
+    head.appendChild(chips);
+
+    if (deletable) head.appendChild(makeDeleteBtn(deletable));
+    block.appendChild(head);
+    return block;
+  }
+
+  function buildSet(step, deletable) {
+    const block = document.createElement('div');
+    block.className = 'block block-set';
+    const head = document.createElement('div');
+    head.className = 'block-head';
+    head.innerHTML = '<span class="block-kw">set</span>';
+
+    const pathInput = document.createElement('input');
+    pathInput.type = 'text';
+    pathInput.placeholder = 'state.X';
+    pathInput.className = 'set-path';
+    liveBind(pathInput, () => step.path || '', v => step.path = v);
+    head.appendChild(pathInput);
+
+    const eq = document.createElement('span');
+    eq.textContent = '=';
+    eq.className = 'block-eq';
+    head.appendChild(eq);
+
+    // Value : show as textarea for the JSON expr (covers const +
+    // var + arithmetic). Phase 5.7.1 will get a proper expr builder.
+    const valTA = document.createElement('textarea');
+    valTA.rows = 1;
+    valTA.className = 'set-value';
+    valTA.placeholder = '{"const": 0}  /  {"var":"state.X"}  /  {"op":"+","left":...,"right":...}';
+    valTA.value = JSON.stringify(step.value === undefined ? { const: 0 } : step.value);
+    valTA.addEventListener('change', () => {
+      try {
+        step.value = JSON.parse(valTA.value);
+        markDirty();
+      } catch (e) {
+        setStatus('set value parse error : ' + e.message, 'error');
+      }
+    });
+    head.appendChild(valTA);
+
+    if (deletable) head.appendChild(makeDeleteBtn(deletable));
+    block.appendChild(head);
+    return block;
+  }
+
+  function buildIf(step, deletable) {
+    const block = document.createElement('div');
+    block.className = 'block block-if';
+    const head = document.createElement('div');
+    head.className = 'block-head';
+    head.innerHTML = '<span class="block-kw">if</span>';
+    if (deletable) head.appendChild(makeDeleteBtn(deletable));
+    block.appendChild(head);
+
+    const body = document.createElement('div');
+    body.className = 'block-body';
+    if (!Array.isArray(step.branches)) step.branches = [];
+    const branches = step.branches;
+
+    branches.forEach((br, i) => {
+      const branchDiv = document.createElement('div');
+      branchDiv.className = 'branch';
+
+      const branchHead = document.createElement('div');
+      branchHead.className = 'branch-head';
+
+      const hasCond = br && (br.cond !== undefined || br.op !== undefined);
+      const label = !hasCond ? 'else' : (i === 0 ? 'when' : 'elseif');
+      const lblSpan = document.createElement('span');
+      lblSpan.className = 'branch-label';
+      lblSpan.textContent = label;
+      branchHead.appendChild(lblSpan);
+
+      if (label !== 'else') {
+        // Migrate legacy flat {op,var,value} → branch.cond shape.
+        if (!br.cond && br.op !== undefined) {
+          br.cond = { op: br.op, var: br.var, value: br.value };
+          delete br.op; delete br.var; delete br.value;
+        }
+        branchHead.appendChild(buildCondEditor(br, 'cond'));
+      }
+
+      // Delete branch button (always, since at least the else can
+      // stay alone but we let user remove anything).
+      branchHead.appendChild(makeDeleteBtn(() => {
+        branches.splice(i, 1);
+        markDirty(); render();
+      }, '✕ branch'));
+      branchDiv.appendChild(branchHead);
+
+      // The "then" action.
+      const thenWrap = document.createElement('div');
+      thenWrap.className = 'branch-then';
+      if (!br.then) br.then = { type: 'fan_out', nodes: [] };
+      thenWrap.appendChild(buildAction(br.then, br, 'then'));
+      branchDiv.appendChild(thenWrap);
+
+      body.appendChild(branchDiv);
+    });
+
+    // Add-branch buttons.
+    const adders = document.createElement('div');
+    adders.className = 'branch-adders';
+    adders.appendChild(makeAddBtn('+ elseif', () => {
+      // Insert before the else branch if one exists.
+      const elseIdx = branches.findIndex(b => !b || (b.cond === undefined && b.op === undefined));
+      const newBranch = { cond: { op: '==', var: 'data.X', value: '' }, then: { type: 'fan_out', nodes: [] } };
+      if (elseIdx >= 0) branches.splice(elseIdx, 0, newBranch);
+      else branches.push(newBranch);
+      markDirty(); render();
+    }));
+    const hasElse = branches.some(b => !b || (b.cond === undefined && b.op === undefined));
+    if (!hasElse) {
+      adders.appendChild(makeAddBtn('+ else', () => {
+        branches.push({ then: { type: 'fan_out', nodes: [] } });
+        markDirty(); render();
+      }));
+    }
+    body.appendChild(adders);
+
+    block.appendChild(body);
+    return block;
+  }
+
+  function buildFor(step, deletable) {
+    const block = document.createElement('div');
+    block.className = 'block block-for';
+    const head = document.createElement('div');
+    head.className = 'block-head';
+    head.innerHTML = '<span class="block-kw">for</span>';
+
+    const varInput = document.createElement('input');
+    varInput.type = 'text';
+    varInput.className = 'for-var';
+    varInput.placeholder = 'item';
+    liveBind(varInput, () => step.var || 'item', v => step.var = v);
+    head.appendChild(varInput);
+
+    const inLabel = document.createElement('span');
+    inLabel.textContent = 'in';
+    inLabel.className = 'block-kw-sub';
+    head.appendChild(inLabel);
+
+    // Items : chips of literal values.
+    const itemsBox = document.createElement('div');
+    itemsBox.className = 'chips';
+    if (!Array.isArray(step.in)) step.in = [];
+    step.in.forEach((item, i) => {
+      const c = document.createElement('span');
+      c.className = 'chip chip-lit';
+      c.textContent = JSON.stringify(item);
+      const x = document.createElement('button');
+      x.type = 'button'; x.className = 'chip-x'; x.textContent = '×';
+      x.addEventListener('click', () => {
+        step.in.splice(i, 1);
+        markDirty(); render();
+      });
+      c.appendChild(x);
+      itemsBox.appendChild(c);
+    });
+    const itemAdd = document.createElement('input');
+    itemAdd.type = 'text';
+    itemAdd.className = 'chip-add chip-lit-add';
+    itemAdd.placeholder = '+ item (Enter)';
+    itemAdd.addEventListener('keydown', ev => {
+      if (ev.key !== 'Enter') return;
+      ev.preventDefault();
+      const raw = itemAdd.value.trim();
+      if (!raw) return;
+      let v;
+      try { v = JSON.parse(raw); } catch { v = raw; }
+      step.in.push(v);
+      itemAdd.value = '';
+      markDirty(); render();
+    });
+    itemsBox.appendChild(itemAdd);
+    head.appendChild(itemsBox);
+
+    if (deletable) head.appendChild(makeDeleteBtn(deletable));
+    block.appendChild(head);
+
+    // body : the do action.
+    const body = document.createElement('div');
+    body.className = 'block-body';
+    const doLabel = document.createElement('span');
+    doLabel.className = 'block-kw-sub';
+    doLabel.textContent = 'do';
+    body.appendChild(doLabel);
+    if (!step.do) step.do = { type: 'call', node: '' };
+    body.appendChild(buildAction(step.do, step, 'do'));
+    block.appendChild(body);
+
+    return block;
+  }
+
+  function buildWhile(step, deletable) {
+    const block = document.createElement('div');
+    block.className = 'block block-while';
+    const head = document.createElement('div');
+    head.className = 'block-head';
+    head.innerHTML = '<span class="block-kw">while</span>';
+
+    if (!step.cond || typeof step.cond !== 'object') {
+      step.cond = { op: '<', var: 'state.iter', value: 3 };
+    }
+    head.appendChild(buildCondEditor(step, 'cond'));
+
+    const maxLabel = document.createElement('span');
+    maxLabel.className = 'block-kw-sub';
+    maxLabel.textContent = 'maxIter';
+    head.appendChild(maxLabel);
+    const maxInput = document.createElement('input');
+    maxInput.type = 'number';
+    maxInput.className = 'while-max';
+    maxInput.min = '1';
+    maxInput.value = String(step.maxIter || 10);
+    maxInput.addEventListener('input', () => {
+      const v = parseInt(maxInput.value, 10);
+      if (!Number.isNaN(v) && v > 0) { step.maxIter = v; markDirty(); }
+    });
+    head.appendChild(maxInput);
+
+    if (deletable) head.appendChild(makeDeleteBtn(deletable));
+    block.appendChild(head);
+    return block;
+  }
+
+  // Action dispatcher : picks the right block builder, plus a
+  // "change type" dropdown for swapping action kinds.
+  function buildAction(action, parentRef, parentKey) {
+    const t = (action && action.type) || 'call';
+    const onDelete = (parentRef && parentKey)
+      ? () => {
+          // For an action embedded inside another (if-branch then,
+          // for.do): replace by a placeholder so the parent still
+          // has shape.
+          parentRef[parentKey] = { type: 'call', node: '' };
+          markDirty(); render();
+        }
+      : null;
+    if (t === 'call')     return buildCall(action, parentRef, parentKey, onDelete);
+    if (t === 'fan_out')  return buildFanOut(action, onDelete);
+    if (t === 'set')      return buildSet(action, onDelete);
+    if (t === 'if')       return buildIf(action, onDelete);
+    if (t === 'for')      return buildFor(action, onDelete);
+    if (t === 'while')    return buildWhile(action, onDelete);
+    if (t === 'sequence') return buildSequence(action, false);
+    if (t === 'end') {
+      const block = document.createElement('div');
+      block.className = 'block block-end';
+      block.innerHTML = '<span class="block-kw">end</span>';
+      if (onDelete) block.appendChild(makeDeleteBtn(onDelete));
+      return block;
+    }
+    const block = document.createElement('div');
+    block.className = 'block block-unknown';
+    block.innerHTML = `<span class="tree-unknown">unknown: ${escapeHtml(t)}</span>`;
+    return block;
+  }
+
+  function buildSequence(step, isRoot) {
+    const block = document.createElement('div');
+    block.className = 'block block-seq' + (isRoot ? ' block-seq-root' : '');
+    if (!Array.isArray(step.steps)) step.steps = [];
+    const steps = step.steps;
+
+    steps.forEach((s, i) => {
+      const slot = document.createElement('div');
+      slot.className = 'seq-step';
+      slot.setAttribute('data-step-idx', isRoot ? String(i) : '');
+
+      const child = buildAction(s, null, null);
+      // Wrap with controls : delete button for sequence members.
+      const ctl = document.createElement('div');
+      ctl.className = 'seq-controls';
+      ctl.appendChild(makeDeleteBtn(() => {
+        steps.splice(i, 1);
+        if (isRoot && selectedStepIdx === i) selectedStepIdx = -1;
+        markDirty(); render();
+      }, '✕'));
+      slot.appendChild(child);
+      slot.appendChild(ctl);
+
+      if (isRoot) {
+        slot.addEventListener('click', ev => {
+          ev.stopPropagation();
+          setSelectedStep(i);
+        });
+      }
+      block.appendChild(slot);
+    });
+
+    // Add-step toolbar
+    const adders = document.createElement('div');
+    adders.className = 'seq-adders';
+    adders.appendChild(makeAddBtn('+ call', () => {
+      steps.push({ type: 'call', node: '' });
+      markDirty(); render();
+    }));
+    adders.appendChild(makeAddBtn('+ fan_out', () => {
+      steps.push({ type: 'fan_out', nodes: [] });
+      markDirty(); render();
+    }));
+    adders.appendChild(makeAddBtn('+ if', () => {
+      steps.push({
+        type: 'if',
+        branches: [
+          { cond: { op: '==', var: 'data.kind', value: 'vip' }, then: { type: 'fan_out', nodes: [] } },
+          { then: { type: 'fan_out', nodes: [] } }
+        ]
+      });
+      markDirty(); render();
+    }));
+    adders.appendChild(makeAddBtn('+ set', () => {
+      steps.push({ type: 'set', path: 'state.example', value: { const: 0 } });
+      markDirty(); render();
+    }));
+    adders.appendChild(makeAddBtn('+ for', () => {
+      steps.push({ type: 'for', var: 'item', in: [], do: { type: 'call', node: '' } });
+      markDirty(); render();
+    }));
+    adders.appendChild(makeAddBtn('+ while', () => {
+      steps.push({ type: 'while', cond: { op: '<', var: 'state.iter', value: 3 }, maxIter: 10 });
+      markDirty(); render();
+    }));
+    block.appendChild(adders);
+
+    return block;
+  }
+
+  // Top-level wrapper that the outline renderer calls.
   function renderTreeNode(step) {
+    // Wrap into <li> so the old DOM structure still holds where
+    // callers expect (the <ol> outline) — but the content is now
+    // the block tree.
     const li = document.createElement('li');
     li.className = 'tree-node';
     if (!step || typeof step !== 'object') {
       li.innerHTML = '<span class="tree-unknown">(invalid step)</span>';
       return li;
     }
-    const t = step.type;
-    const head = document.createElement('div');
-    head.className = `tree-head-${t || 'unknown'}`;
-
-    if (t === 'sequence') {
-      head.innerHTML = '<span class="tree-kw">sequence</span>';
-      li.appendChild(head);
-      const children = document.createElement('ol');
-      children.className = 'tree-children';
-      const steps = Array.isArray(step.steps) ? step.steps : [];
-      // Phase 5.5c — tag top-level children with their index so the
-      // selection / move / delete toolbar can target them.
-      steps.forEach((s, i) => {
-        const childLi = renderTreeNode(s);
-        childLi.setAttribute('data-step-idx', String(i));
-        childLi.addEventListener('click', ev => {
-          ev.stopPropagation();
-          setSelectedStep(i);
-        });
-        children.appendChild(childLi);
-      });
-      li.appendChild(children);
-    } else if (t === 'call') {
-      head.innerHTML = `<span class="tree-kw">call</span> → <span class="tree-role">${escapeHtml(step.node || '?')}</span>`;
-      li.appendChild(head);
-    } else if (t === 'fan_out') {
-      const nodes = (step.nodes || []).map(escapeHtml).join(', ');
-      head.innerHTML = `<span class="tree-kw">fan_out</span> → <span class="tree-role">[${nodes}]</span>`;
-      li.appendChild(head);
-    } else if (t === 'if') {
-      head.innerHTML = '<span class="tree-kw">if</span>';
-      li.appendChild(head);
-      const branches = Array.isArray(step.branches) ? step.branches : [];
-      const list = document.createElement('ol');
-      list.className = 'tree-children';
-      branches.forEach((b, idx) => {
-        const bli = document.createElement('li');
-        bli.className = 'tree-branch';
-        // A branch has a cond when either `cond` (new composite
-        // form) or `op` (legacy flat leaf) is present. Without
-        // either, it's the else branch.
-        const hasCond = (b && (b.cond !== undefined || b.op !== undefined));
-        const label = !hasCond
-          ? 'else'
-          : (idx === 0 ? 'when' : 'elseif');
-        const cond = (label === 'else')
-          ? '<b>else</b>'
-          : `<span class="tree-kw-sub">${label}</span> ${summarizeCond(b)}`;
-        const bhead = document.createElement('div');
-        bhead.className = 'tree-cond';
-        bhead.innerHTML = cond;
-        bli.appendChild(bhead);
-        if (b.then) {
-          const inner = document.createElement('ol');
-          inner.className = 'tree-children';
-          inner.appendChild(renderTreeNode(b.then));
-          bli.appendChild(inner);
-        }
-        list.appendChild(bli);
-      });
-      li.appendChild(list);
-    } else if (t === 'set') {
-      head.innerHTML = `<span class="tree-kw">set</span> <code>${escapeHtml(step.path || '?')}</code> = ${summarizeExpr(step.value)}`;
-      li.appendChild(head);
-    } else if (t === 'for') {
-      const items = Array.isArray(step.in)
-        ? step.in.map(x => JSON.stringify(x)).join(', ')
-        : '?';
-      head.innerHTML = `<span class="tree-kw">for</span> <code>${escapeHtml(step.var || 'item')}</code> in [${escapeHtml(items)}]`;
-      li.appendChild(head);
-      if (step.do) {
-        const inner = document.createElement('ol');
-        inner.className = 'tree-children';
-        inner.appendChild(renderTreeNode(step.do));
-        li.appendChild(inner);
-      }
-    } else if (t === 'while') {
-      const max = (step.maxIter !== undefined) ? ` <span class="tree-meta">(maxIter=${escapeHtml(step.maxIter)})</span>` : '';
-      head.innerHTML = `<span class="tree-kw">while</span> ${summarizeCond(step.cond ? Object.assign({}, step.cond, {value: step.cond.value}) : {})}${max}`;
-      li.appendChild(head);
-      if (step.do) {
-        const inner = document.createElement('ol');
-        inner.className = 'tree-children';
-        inner.appendChild(renderTreeNode(step.do));
-        li.appendChild(inner);
-      }
-    } else if (t === 'end') {
-      head.innerHTML = '<span class="tree-kw">end</span>';
-      li.appendChild(head);
+    if (step.type === 'sequence') {
+      li.appendChild(buildSequence(step, true));
     } else {
-      head.innerHTML = `<span class="tree-unknown">${escapeHtml(t || '?')}</span>`;
-      li.appendChild(head);
+      li.appendChild(buildAction(step, null, null));
     }
     return li;
   }
@@ -924,13 +1401,14 @@
     if ($up)   $up.disabled   = !valid || idx === 0;
     if ($down) $down.disabled = !valid || idx >= steps.length - 1;
     if ($del)  $del.disabled  = !valid;
-    // Visually mark the selected <li>.
+    // Visually mark the selected sequence step. The block renderer
+    // (Phase 5.7) stamps data-step-idx on .seq-step divs.
     const out = document.getElementById('tree-outline');
     if (out) {
-      out.querySelectorAll('li.tree-node.selected').forEach(li => li.classList.remove('selected'));
+      out.querySelectorAll('.seq-step.selected').forEach(el => el.classList.remove('selected'));
       if (valid) {
-        const li = out.querySelector(`li.tree-node[data-step-idx="${idx}"]`);
-        if (li) li.classList.add('selected');
+        const el = out.querySelector(`.seq-step[data-step-idx="${idx}"]`);
+        if (el) el.classList.add('selected');
       }
     }
     // Step editor panel — show the JSON of the selected step so the
