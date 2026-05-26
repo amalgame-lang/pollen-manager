@@ -153,6 +153,54 @@
     return out;
   }
 
+  // Phase 5.7 polish — which role owns each `set` step.
+  // After a `call(X)`, all subsequent `set` steps in the same
+  // (sub-)sequence belong to X until the next dispatcher (call /
+  // fan_out / if / for / while). Walks the tree with the same
+  // semantics deriveEdgesFromTree uses.
+  function setsPerRole(wf) {
+    const out = {};
+    if (!wf || !wf.tree) return out;
+    function add(role, step) {
+      if (!role) return;
+      (out[role] || (out[role] = [])).push(step);
+    }
+    function walk(action, currentOwner) {
+      if (!action || typeof action !== 'object') return currentOwner;
+      const t = action.type;
+      if (t === 'sequence') {
+        let cur = currentOwner;
+        for (const s of action.steps || []) cur = walk(s, cur);
+        return cur;
+      }
+      if (t === 'call') return action.node || currentOwner;
+      if (t === 'fan_out') {
+        const targets = Array.isArray(action.nodes) ? action.nodes : [];
+        // Subsequent sets in the same sub-sequence apply to each
+        // fan_out target. We attribute to the first for visual
+        // simplicity ; the runtime applies them per-target anyway.
+        return targets[0] || currentOwner;
+      }
+      if (t === 'set') {
+        add(currentOwner, action);
+        return currentOwner;
+      }
+      if (t === 'if') {
+        for (const br of (action.branches || [])) {
+          if (br && br.then) walk(br.then, currentOwner);
+        }
+        return currentOwner;
+      }
+      if (t === 'for') {
+        if (action.do) walk(action.do, currentOwner);
+        return currentOwner;
+      }
+      return currentOwner;
+    }
+    walk(wf.tree, null);
+    return out;
+  }
+
   function topoLayout(wf) {
     const nodes = wf.nodes || {};
     const keys = Object.keys(nodes);
@@ -234,6 +282,13 @@
     for (const k of Object.keys(wf.nodes)) {
       nodeIndex.set(k, { g: null, edgesFrom: [], edgesTo: [] });
     }
+
+    // Phase 5.7 polish — map sets onto the role that executes them
+    // so the SVG nodes can display them (state mutations were
+    // otherwise invisible above the routing topology).
+    const setsByRole = (wf.tree && typeof wf.tree === 'object')
+      ? setsPerRole(wf)
+      : {};
 
     // Phase 5.5f — collect the edge list. v2 → derived from tree
      // (so if/for/while routes show up), v1 → per-node next[].
@@ -326,6 +381,23 @@
       meta.setAttribute('y', 14);
       meta.textContent = (n.host || '?') + ':' + (n.port || '?');
       g.appendChild(meta);
+
+      // Phase 5.7 polish — render sets owned by this role under
+      // the host/port line so they're visible in the DAG (the
+      // tree has them but the canvas was silent about state
+      // mutations).
+      const setsHere = setsByRole[k] || [];
+      if (setsHere.length > 0) {
+        const setsLabel = document.createElementNS(SVG_NS, 'text');
+        setsLabel.setAttribute('class', 'node-sets');
+        setsLabel.setAttribute('y', 28);
+        const shown = setsHere.slice(0, 2)
+          .map(s => '✎ ' + (s.path || 'state.?'))
+          .join('  ');
+        const extra = setsHere.length > 2 ? `  +${setsHere.length - 2}` : '';
+        setsLabel.textContent = shown + extra;
+        g.appendChild(setsLabel);
+      }
 
       // Count badge (top-right corner). Hidden in Edit mode.
       const badgeG = document.createElementNS(SVG_NS, 'g');
@@ -1382,6 +1454,19 @@
   $save.addEventListener('click', save);
   $reload.addEventListener('click', load);
   $add.addEventListener('click', addNode);
+
+  // Phase 5.7 polish — Re-layout : wipe the sticky _layout so
+  // ensureLayout() picks fresh positions from the current
+  // topology (edges derived from the tree).
+  const $relayout = document.getElementById('dag-relayout');
+  if ($relayout) {
+    $relayout.addEventListener('click', () => {
+      if (wf && wf._layout) wf._layout = {};
+      markDirty();
+      render();
+      setStatus('layout recomputed — click Save to persist positions', 'ok');
+    });
+  }
   $delete.addEventListener('click', deleteSelected);
   $apply.addEventListener('click', applyForm);
 
