@@ -874,6 +874,59 @@ body[data-mode="watch"] #dag .node-badge.on { opacity: 1; }
   background: var(--bg-2);
   border-radius: 3px;
 }
+/* Composite cond builder (Phase 5.7.1) */
+.cond-composite { display: inline-block; }
+.cond-group {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 6px 6px 6px;
+  border-radius: 4px;
+  background: rgba(245,180,0,0.05);
+  border: 1px solid rgba(245,180,0,0.30);
+  vertical-align: top;
+}
+.cond-group-or  { background: rgba(108,154,240,0.05);
+                  border-color: rgba(108,154,240,0.30); }
+.cond-group-not { background: rgba(248,113,113,0.05);
+                  border-color: rgba(248,113,113,0.30); }
+.cond-group-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+}
+.cond-group-op {
+  color: var(--accent);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  font-size: 11px;
+  padding: 1px 6px;
+  background: rgba(245,180,0,0.18);
+  border-radius: 3px;
+  border: none;
+}
+.cond-group-or > .cond-group-head > .cond-group-op {
+  color: #6c9af0;
+  background: rgba(108,154,240,0.18);
+}
+.cond-group-not > .cond-group-head > .cond-group-op {
+  color: #f87171;
+  background: rgba(248,113,113,0.18);
+}
+select.cond-group-op {
+  cursor: pointer;
+}
+.cond-arg {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-left: 6px;
+}
+.cond-arg > .block-del {
+  margin-left: 0;
+  font-size: 10px;
+}
 
 /* chips lists */
 .chips {

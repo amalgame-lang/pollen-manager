@@ -634,49 +634,143 @@
     return b;
   }
 
-  // Cond builder : renders a leaf cond {op, var, value} inline.
-  // Composite (and/or/not) shown read-only with a "edit JSON"
-  // fallback — composite editing is Phase 5.7.1.
+  // Phase 5.7.1 — recursive cond builder.
+  // Leaf : 3 inline inputs (var | op | value) + wrap-with-AND/OR/NOT.
+  // Composite : box labelled with op (AND / OR / NOT), each arg
+  // is itself a buildCondEditor(args, i) recursion, plus a
+  // "+ clause" button. Collapsing a composite back to a leaf is
+  // a "↺ leaf" button.
   function buildCondEditor(parent, key) {
     const wrapper = document.createElement('div');
     wrapper.className = 'cond-editor';
-    const c = parent[key];
-    // Composite — show as JSON pill (read-only for now).
-    if (c && typeof c === 'object' && (c.op === 'and' || c.op === 'or' || c.op === 'not')) {
+    let c = parent[key];
+
+    // ── AND / OR composite ──
+    if (c && (c.op === 'and' || c.op === 'or')) {
       wrapper.classList.add('cond-composite');
-      const summary = document.createElement('span');
-      summary.className = 'cond-composite-summary';
-      summary.innerHTML = summarizeCondExpr(c);
-      wrapper.appendChild(summary);
-      const editBtn = document.createElement('button');
-      editBtn.type = 'button';
-      editBtn.className = 'block-add';
-      editBtn.textContent = '✎ JSON';
-      editBtn.title = 'Composite conds still edit via JSON for now';
-      editBtn.addEventListener('click', () => {
-        const txt = prompt('Composite cond JSON:', JSON.stringify(c, null, 2));
-        if (txt == null) return;
-        try {
-          parent[key] = JSON.parse(txt);
-          markDirty();
-          render();
-        } catch (e) { setStatus('cond parse error: ' + e.message, 'error'); }
+      const box = document.createElement('div');
+      box.className = 'cond-group cond-group-' + c.op;
+
+      const head = document.createElement('div');
+      head.className = 'cond-group-head';
+      // op switcher (AND ↔ OR)
+      const opSel = document.createElement('select');
+      opSel.className = 'cond-group-op';
+      ['and', 'or'].forEach(op => {
+        const o = document.createElement('option');
+        o.value = op; o.textContent = op.toUpperCase();
+        if (c.op === op) o.selected = true;
+        opSel.appendChild(o);
       });
-      wrapper.appendChild(editBtn);
+      opSel.addEventListener('change', () => {
+        c.op = opSel.value;
+        box.className = 'cond-group cond-group-' + c.op;
+        markDirty();
+      });
+      head.appendChild(opSel);
+
+      // Wrap-with-NOT
+      const notBtn = document.createElement('button');
+      notBtn.type = 'button';
+      notBtn.className = 'block-add';
+      notBtn.textContent = '! NOT';
+      notBtn.title = 'Wrap this whole group in NOT';
+      notBtn.addEventListener('click', () => {
+        parent[key] = { op: 'not', arg: c };
+        markDirty(); render();
+      });
+      head.appendChild(notBtn);
+
+      // Collapse to leaf : take the first arg (if any) else default.
       const toLeaf = document.createElement('button');
       toLeaf.type = 'button';
       toLeaf.className = 'block-add';
       toLeaf.textContent = '↺ leaf';
-      toLeaf.title = 'Reset to a single comparison';
       toLeaf.addEventListener('click', () => {
-        parent[key] = { op: '==', var: 'data.X', value: '' };
-        markDirty();
-        render();
+        const first = Array.isArray(c.args) && c.args[0]
+          ? c.args[0]
+          : { op: '==', var: 'data.X', value: '' };
+        parent[key] = first;
+        markDirty(); render();
       });
-      wrapper.appendChild(toLeaf);
+      head.appendChild(toLeaf);
+
+      box.appendChild(head);
+
+      if (!Array.isArray(c.args)) c.args = [];
+      c.args.forEach((arg, i) => {
+        const argRow = document.createElement('div');
+        argRow.className = 'cond-arg';
+        argRow.appendChild(buildCondEditor(c.args, i));
+        const del = document.createElement('button');
+        del.type = 'button';
+        del.className = 'block-del';
+        del.innerHTML = '✕';
+        del.title = 'Delete this clause';
+        del.addEventListener('click', () => {
+          c.args.splice(i, 1);
+          // If only one clause remains, collapse the wrapper.
+          if (c.args.length === 1) parent[key] = c.args[0];
+          // If zero, collapse to a default leaf.
+          else if (c.args.length === 0) {
+            parent[key] = { op: '==', var: 'data.X', value: '' };
+          }
+          markDirty(); render();
+        });
+        argRow.appendChild(del);
+        box.appendChild(argRow);
+      });
+
+      const addBtn = document.createElement('button');
+      addBtn.type = 'button';
+      addBtn.className = 'block-add';
+      addBtn.textContent = '+ clause';
+      addBtn.addEventListener('click', () => {
+        c.args.push({ op: '==', var: 'data.X', value: '' });
+        markDirty(); render();
+      });
+      box.appendChild(addBtn);
+
+      wrapper.appendChild(box);
       return wrapper;
     }
-    // Leaf — var input + op dropdown + value input.
+
+    // ── NOT composite ──
+    if (c && c.op === 'not') {
+      wrapper.classList.add('cond-composite');
+      const box = document.createElement('div');
+      box.className = 'cond-group cond-group-not';
+
+      const head = document.createElement('div');
+      head.className = 'cond-group-head';
+      const lbl = document.createElement('span');
+      lbl.className = 'cond-group-op';
+      lbl.textContent = 'NOT';
+      head.appendChild(lbl);
+
+      const toLeaf = document.createElement('button');
+      toLeaf.type = 'button';
+      toLeaf.className = 'block-add';
+      toLeaf.textContent = '↺ leaf';
+      toLeaf.addEventListener('click', () => {
+        parent[key] = c.arg || { op: '==', var: 'data.X', value: '' };
+        markDirty(); render();
+      });
+      head.appendChild(toLeaf);
+
+      box.appendChild(head);
+
+      if (!c.arg) c.arg = { op: '==', var: 'data.X', value: '' };
+      const argRow = document.createElement('div');
+      argRow.className = 'cond-arg';
+      argRow.appendChild(buildCondEditor(c, 'arg'));
+      box.appendChild(argRow);
+
+      wrapper.appendChild(box);
+      return wrapper;
+    }
+
+    // ── Leaf : 3 inputs + wrap buttons ──
     const leaf = (c && typeof c === 'object') ? c : { op: '==', var: '', value: '' };
     parent[key] = leaf;
 
@@ -703,8 +797,7 @@
     const valInput = document.createElement('input');
     valInput.type = 'text';
     valInput.className = 'cond-val';
-    valInput.placeholder = 'value (string/number/true/false)';
-    // value can be string/number/bool — store as typed JSON.
+    valInput.placeholder = 'value';
     function valToStr(v) {
       if (v === true) return 'true';
       if (v === false) return 'false';
@@ -716,7 +809,6 @@
       if (s === 'true') return true;
       if (s === 'false') return false;
       if (s === 'null') return null;
-      // Number ?
       const n = Number(s);
       if (s !== '' && !Number.isNaN(n) && /^-?\d+(\.\d+)?$/.test(s)) return n;
       return s;
@@ -727,20 +819,38 @@
       markDirty();
     });
 
-    // To composite : wrap current leaf inside an `and` so user can
-    // add more clauses.
-    const composeBtn = document.createElement('button');
-    composeBtn.type = 'button';
-    composeBtn.className = 'block-add';
-    composeBtn.textContent = '+ AND';
-    composeBtn.title = 'Wrap with AND for adding more conditions';
-    composeBtn.addEventListener('click', () => {
+    // Wrap buttons : AND / OR / NOT.
+    const andBtn = document.createElement('button');
+    andBtn.type = 'button';
+    andBtn.className = 'block-add';
+    andBtn.textContent = '+ AND';
+    andBtn.title = 'Combine this with another condition (all must match)';
+    andBtn.addEventListener('click', () => {
       parent[key] = { op: 'and', args: [Object.assign({}, leaf), { op: '==', var: 'data.X', value: '' }] };
-      markDirty();
-      render();
+      markDirty(); render();
     });
 
-    wrapper.append(varInput, opSelect, valInput, composeBtn);
+    const orBtn = document.createElement('button');
+    orBtn.type = 'button';
+    orBtn.className = 'block-add';
+    orBtn.textContent = '+ OR';
+    orBtn.title = 'Combine this with another condition (any can match)';
+    orBtn.addEventListener('click', () => {
+      parent[key] = { op: 'or', args: [Object.assign({}, leaf), { op: '==', var: 'data.X', value: '' }] };
+      markDirty(); render();
+    });
+
+    const notBtn = document.createElement('button');
+    notBtn.type = 'button';
+    notBtn.className = 'block-add';
+    notBtn.textContent = '! NOT';
+    notBtn.title = 'Negate this condition';
+    notBtn.addEventListener('click', () => {
+      parent[key] = { op: 'not', arg: Object.assign({}, leaf) };
+      markDirty(); render();
+    });
+
+    wrapper.append(varInput, opSelect, valInput, andBtn, orBtn, notBtn);
     return wrapper;
   }
 
