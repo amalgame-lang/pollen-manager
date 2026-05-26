@@ -1379,15 +1379,14 @@
           $liveList.removeChild($liveList.lastChild);
         }
         // Flash matching nodes + edges for the truly-new ones.
+        // Phase 5.5g — for v2 workflows the routing lives in the
+        // tree, not in node.next ; we look up outgoing edges via
+        // the SVG dataset (already wired by render()) instead of
+        // re-reading the workflow.
         for (const r of newRecords) {
           flashNode(r.role);
           const rec = r.record || {};
-          if (rec.topicOut) {
-            const node = wf && wf.nodes && wf.nodes[r.role];
-            if (node && Array.isArray(node.next)) {
-              for (const tgt of node.next) flashEdge(r.role, tgt);
-            }
-          }
+          if (rec.topicOut) flashEdgesFrom(r.role);
         }
       }
     }
@@ -1453,6 +1452,17 @@
       if (line.dataset.to !== to) continue;
       restartFlash(line, 'flash', 1400);
     }
+  }
+
+  // Phase 5.5g — flash every outgoing edge from a role. Used when
+  // a record arrives and we don't know the specific target yet
+  // (v2 trees have many possible exits — cond branches, fan_out
+  // splits — so we just light up all of them when this role
+  // forwards).
+  function flashEdgesFrom(role) {
+    const e = nodeIndex.get(role);
+    if (!e) return;
+    for (const line of e.edgesFrom) restartFlash(line, 'flash', 1400);
   }
 
   function escapeAttr(s) {
