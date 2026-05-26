@@ -1050,16 +1050,17 @@ select.cond-group-op {
 /* sequence (root + nested) */
 .seq-step {
   position: relative;
-  padding-right: 50px;
   transition: opacity 120ms;
 }
-.seq-step .seq-controls {
-  position: absolute;
-  top: 6px;
-  right: 4px;
-  display: flex;
-  align-items: center;
-  gap: 4px;
+/* Phase 5.7.8 — drag handle + delete are now appended INSIDE
+ * each block's .block-head, so they sit on the colored band.
+ * The .seq-controls absolute-position trick is retired. */
+.seq-step .block-head > .seq-drag-handle,
+.seq-step .block-head > .block-del {
+  margin-left: auto;
+}
+.seq-step .block-head > .seq-drag-handle ~ .block-del {
+  margin-left: 0;
 }
 /* Phase 5.7.4 — drag-and-drop */
 .seq-drag-handle {

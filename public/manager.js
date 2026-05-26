@@ -1492,16 +1492,24 @@
       });
 
       const child = buildAction(s, null, null);
-      const ctl = document.createElement('div');
-      ctl.className = 'seq-controls';
-      ctl.appendChild(handle);
-      ctl.appendChild(makeDeleteBtn(() => {
+      // Phase 5.7.8 — place the drag handle + delete button INSIDE
+      // the block's head bar so they live on the colored band, not
+      // floating in the gutter outside.
+      const delBtn = makeDeleteBtn(() => {
         steps.splice(i, 1);
         if (isRoot && selectedStepIdx === i) selectedStepIdx = -1;
         markDirty(); render();
-      }, '✕'));
+      }, '✕');
+      const head = child.querySelector ? child.querySelector('.block-head') : null;
+      if (head) {
+        head.appendChild(handle);
+        head.appendChild(delBtn);
+      } else {
+        // No head (e.g. unknown step) — append at the end of the block.
+        child.appendChild(handle);
+        child.appendChild(delBtn);
+      }
       slot.appendChild(child);
-      slot.appendChild(ctl);
 
       if (isRoot) {
         slot.addEventListener('click', ev => {
