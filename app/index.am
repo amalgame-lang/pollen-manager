@@ -79,10 +79,10 @@ public class Page {
             "<div class=\"section-head tree-head\">" +
             "<h2>Tree <span id=\"tree-schema-tag\" class=\"tag\"></span></h2>" +
             "<div class=\"toolbar\">" +
-            "<button id=\"tree-add-if\" disabled title=\"Edit mode coming in 5.5\">+ if</button>" +
-            "<button id=\"tree-add-set\" disabled title=\"Edit mode coming in 5.5\">+ set</button>" +
-            "<button id=\"tree-add-for\" disabled title=\"Edit mode coming in 5.5\">+ for</button>" +
-            "<button id=\"tree-add-while\" disabled title=\"Edit mode coming in 5.5\">+ while</button>" +
+            "<button id=\"tree-add-if\" title=\"Append an if/elseif/else template at the end of the top-level sequence\">+ if</button>" +
+            "<button id=\"tree-add-set\" title=\"Append a set state.X step\">+ set</button>" +
+            "<button id=\"tree-add-for\" title=\"Append a for var in [items] step\">+ for</button>" +
+            "<button id=\"tree-add-while\" title=\"Append a while cond + maxIter step\">+ while</button>" +
             "</div>" +
             "</div>" +
             "<div id=\"tree-view\">" +
