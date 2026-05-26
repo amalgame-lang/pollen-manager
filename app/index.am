@@ -93,6 +93,14 @@ public class Page {
             "<p class=\"placeholder\" id=\"tree-empty\">No <code>tree</code> in this workflow. Add one in Raw JSON or upgrade to schema <code>workflow-tree/v1</code>.</p>" +
             "<ol id=\"tree-outline\" hidden></ol>" +
             "</div>" +
+            "<details id=\"tree-step-edit\" hidden>" +
+            "<summary>Edit selected step (<span id=\"tree-step-label\">none</span>)</summary>" +
+            "<textarea id=\"tree-step-src\" spellcheck=\"false\" rows=\"8\"></textarea>" +
+            "<div class=\"actions\">" +
+            "<button id=\"tree-step-apply\">Apply step</button>" +
+            "<span id=\"tree-step-status\" class=\"hint\"></span>" +
+            "</div>" +
+            "</details>" +
             "<div class=\"section-head live-head\">" +
             "<h2>Live executions</h2>" +
             "<div class=\"toolbar\">" +
