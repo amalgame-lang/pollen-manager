@@ -1582,10 +1582,15 @@
       return bar;
     }
 
-    // Toolbar both at top AND bottom so it stays reachable without
-    // scrolling either way for big workflows.
-    block.insertBefore(makeAddersBar(), block.firstChild);
-    block.appendChild(makeAddersBar());
+    // Phase 5.7.12 — adders inside the sequence only for NESTED
+    // sequences (inside if.then or for.do). The root sequence
+    // is served by the unified tree-head toolbar (which knows
+    // about selection) ; duplicating it inside the block was
+    // visual noise.
+    if (!isRoot) {
+      block.insertBefore(makeAddersBar(), block.firstChild);
+      block.appendChild(makeAddersBar());
+    }
 
     return block;
   }
@@ -2307,54 +2312,51 @@
     }
   }
 
-  const $treeIf    = document.getElementById('tree-add-if');
-  const $treeSet   = document.getElementById('tree-add-set');
-  const $treeFor   = document.getElementById('tree-add-for');
-  const $treeWhile = document.getElementById('tree-add-while');
-
-  // Templates default to EMPTY targets. Auto-filling with the
-  // first/last existing node sounded useful but in practice it
-  // creates a flood of "phantom" edges from the in-flight
-  // frontier in the SVG canvas. Operator clicks the step → edits
-  // the JSON → the new targets show up explicitly.
+  // Phase 5.7.12 — tree-head toolbar is the single source of
+  // truth for adding root-sequence steps. Templates default to
+  // EMPTY targets to avoid phantom-edge floods in the DAG ;
+  // operator picks the role from the dropdown after.
   function nodeKeys() {
     return (wf && wf.nodes) ? Object.keys(wf.nodes) : [];
   }
-  if ($treeIf) {
-    $treeIf.addEventListener('click', () => appendStep({
+  function insertRootStep(tmpl, label) {
+    const steps = ensureSequence();
+    if (!steps) return;
+    const sel = (selectedStepIdx >= 0 && selectedStepIdx < steps.length)
+      ? selectedStepIdx + 1
+      : steps.length;
+    steps.splice(sel, 0, tmpl);
+    selectedStepIdx = sel;
+    render();
+    markDirty();
+    setSelectedStep(sel);
+    if ($rawStatus) {
+      $rawStatus.textContent = `+ ${label} inserted at index ${sel} — click Save to persist`;
+      $rawStatus.className = 'hint ok';
+    }
+  }
+
+  const treeAddSpecs = [
+    ['tree-add-call',    'call',    () => ({ type: 'call', node: '' })],
+    ['tree-add-fan_out', 'fan_out', () => ({ type: 'fan_out', nodes: [] })],
+    ['tree-add-if',      'if',      () => ({
       type: 'if',
       branches: [
-        {
-          cond: { op: '==', var: 'data.kind', value: 'vip' },
-          then: { type: 'fan_out', nodes: [] }
-        },
-        {
-          then: { type: 'fan_out', nodes: [] }
-        }
+        { cond: { op: '==', var: 'data.kind', value: 'vip' },
+          then: { type: 'fan_out', nodes: [] } },
+        { then: { type: 'fan_out', nodes: [] } }
       ]
-    }, 'if'));
-  }
-  if ($treeSet) {
-    $treeSet.addEventListener('click', () => appendStep({
-      type: 'set',
-      path: 'state.example',
-      value: { const: 0 }
-    }, 'set'));
-  }
-  if ($treeFor) {
-    $treeFor.addEventListener('click', () => appendStep({
-      type: 'for',
-      var: 'item',
-      in: [],
-      do: { type: 'call', node: '' }
-    }, 'for'));
-  }
-  if ($treeWhile) {
-    $treeWhile.addEventListener('click', () => appendStep({
-      type: 'while',
-      cond: { op: '<', var: 'state.iter', value: 3 },
-      maxIter: 10
-    }, 'while'));
+    })],
+    ['tree-add-set',     'set',     () => ({
+      type: 'set', path: 'state.example', value: { const: 0 } })],
+    ['tree-add-for',     'for',     () => ({
+      type: 'for', var: 'item', in: [], do: { type: 'call', node: '' } })],
+    ['tree-add-while',   'while',   () => ({
+      type: 'while', cond: { op: '<', var: 'state.iter', value: 3 }, maxIter: 10 })],
+  ];
+  for (const [id, lbl, mkTmpl] of treeAddSpecs) {
+    const btn = document.getElementById(id);
+    if (btn) btn.addEventListener('click', () => insertRootStep(mkTmpl(), lbl));
   }
 
   // Phase 5.5a — Raw JSON edit + Apply. Smallest useful editing
