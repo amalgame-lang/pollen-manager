@@ -860,6 +860,80 @@
   const $treeStepApply = document.getElementById('tree-step-apply');
   if ($treeStepApply) $treeStepApply.addEventListener('click', applyStepEdit);
 
+  // Phase 5.5e polish — Validate. Walk the tree, collect every
+  // referenced node name, flag those that don't exist in wf.nodes.
+  // Also flag empty fan_outs (would silently route nowhere) and
+  // ifs whose last branch isn't an else (messages can fall off).
+  function collectIssues() {
+    const issues = [];
+    const keys = nodeKeys();
+    if (!wf) { issues.push('no workflow loaded'); return issues; }
+    if (keys.length === 0) issues.push('no nodes defined');
+    if (!wf.tree) { issues.push('no tree (workflow has no behavior)'); return issues; }
+
+    function checkRoleRef(role, path) {
+      if (!role) issues.push(`${path}: empty node reference`);
+      else if (keys.indexOf(role) < 0) issues.push(`${path}: node "${role}" not in wf.nodes`);
+    }
+
+    function walk(step, path) {
+      if (!step || typeof step !== 'object') return;
+      const t = step.type;
+      if (t === 'sequence') {
+        const steps = Array.isArray(step.steps) ? step.steps : [];
+        steps.forEach((s, i) => walk(s, `${path}.steps[${i}]`));
+      } else if (t === 'call') {
+        checkRoleRef(step.node, path);
+      } else if (t === 'fan_out') {
+        const nodes = Array.isArray(step.nodes) ? step.nodes : [];
+        if (nodes.length === 0) issues.push(`${path}: fan_out has no targets`);
+        nodes.forEach((r, i) => checkRoleRef(r, `${path}.nodes[${i}]`));
+      } else if (t === 'if') {
+        const branches = Array.isArray(step.branches) ? step.branches : [];
+        if (branches.length === 0) issues.push(`${path}: if has no branches`);
+        const last = branches[branches.length - 1];
+        if (last && (last.cond !== undefined || last.op !== undefined)) {
+          issues.push(`${path}: last branch has a cond — messages that don't match any branch are dropped. Add an else.`);
+        }
+        branches.forEach((b, i) => {
+          if (b && b.then) walk(b.then, `${path}.branches[${i}].then`);
+        });
+      } else if (t === 'set') {
+        if (!step.path || typeof step.path !== 'string') {
+          issues.push(`${path}: set step missing path`);
+        }
+      } else if (t === 'for') {
+        if (!Array.isArray(step.in) || step.in.length === 0) {
+          issues.push(`${path}: for has empty items list`);
+        }
+        if (step.do) walk(step.do, `${path}.do`);
+      } else if (t === 'while') {
+        if (!step.cond || typeof step.cond !== 'object') {
+          issues.push(`${path}: while has no cond — would loop forever (capped by maxIter)`);
+        }
+      } else if (t !== 'end' && t !== undefined) {
+        issues.push(`${path}: unknown step type "${t}"`);
+      }
+    }
+    walk(wf.tree, 'tree');
+    return issues;
+  }
+
+  function validateWorkflow() {
+    const issues = collectIssues();
+    if (issues.length === 0) {
+      setStatus('✓ workflow validates — no issues found', 'ok');
+    } else {
+      const lines = issues.map((s, i) => `  ${i + 1}. ${s}`).join('\n');
+      setStatus(`✗ ${issues.length} issue(s) — see console`, 'error');
+      // Also log to console so the user can copy/paste.
+      console.warn('Workflow validation issues:\n' + lines);
+    }
+  }
+
+  const $treeValidate = document.getElementById('tree-validate');
+  if ($treeValidate) $treeValidate.addEventListener('click', validateWorkflow);
+
   function moveStep(delta) {
     if (selectedStepIdx < 0) return;
     if (!wf || !wf.tree || wf.tree.type !== 'sequence') return;
@@ -930,19 +1004,34 @@
   const $treeFor   = document.getElementById('tree-add-for');
   const $treeWhile = document.getElementById('tree-add-while');
 
+  // Phase 5.5e — templates pre-fill with existing node names when
+  // possible, so a freshly added `if` doesn't ship with empty
+  // fan_outs that route nowhere.
+  function nodeKeys() {
+    return (wf && wf.nodes) ? Object.keys(wf.nodes) : [];
+  }
+  function pickN(n) {
+    const keys = nodeKeys();
+    return keys.slice(0, n);
+  }
   if ($treeIf) {
-    $treeIf.addEventListener('click', () => appendStep({
-      type: 'if',
-      branches: [
-        {
-          cond: { op: '==', var: 'data.kind', value: 'vip' },
-          then: { type: 'fan_out', nodes: [] }
-        },
-        {
-          then: { type: 'fan_out', nodes: [] }
-        }
-      ]
-    }, 'if'));
+    $treeIf.addEventListener('click', () => {
+      const keys = nodeKeys();
+      const fallback = keys[0] || '?';
+      appendStep({
+        type: 'if',
+        branches: [
+          {
+            cond: { op: '==', var: 'data.kind', value: 'vip' },
+            then: { type: 'fan_out', nodes: pickN(1).length ? pickN(1) : [fallback] }
+          },
+          {
+            then: { type: 'fan_out',
+                    nodes: keys.length >= 2 ? [keys[keys.length - 1]] : [fallback] }
+          }
+        ]
+      }, 'if');
+    });
   }
   if ($treeSet) {
     $treeSet.addEventListener('click', () => appendStep({
@@ -952,12 +1041,15 @@
     }, 'set'));
   }
   if ($treeFor) {
-    $treeFor.addEventListener('click', () => appendStep({
-      type: 'for',
-      var: 'item',
-      in: [],
-      do: { type: 'call', node: '?' }
-    }, 'for'));
+    $treeFor.addEventListener('click', () => {
+      const fallback = nodeKeys()[0] || '?';
+      appendStep({
+        type: 'for',
+        var: 'item',
+        in: [],
+        do: { type: 'call', node: fallback }
+      }, 'for');
+    });
   }
   if ($treeWhile) {
     $treeWhile.addEventListener('click', () => appendStep({
