@@ -703,6 +703,81 @@
   $delete.addEventListener('click', deleteSelected);
   $apply.addEventListener('click', applyForm);
 
+  // Phase 5.5b — toolbar buttons append a template step at the end
+  // of the top-level sequence. User edits values via Raw JSON or
+  // (future) inline forms.
+  function ensureSequence() {
+    if (!wf || typeof wf !== 'object') {
+      $rawStatus && ($rawStatus.textContent = 'no workflow loaded');
+      return null;
+    }
+    if (!wf.tree || typeof wf.tree !== 'object') {
+      wf.tree = { type: 'sequence', steps: [] };
+    }
+    if (wf.tree.type !== 'sequence') {
+      // Wrap a non-sequence root in a fresh sequence so we have a
+      // place to append. Conservative — the original root becomes
+      // the first step.
+      wf.tree = { type: 'sequence', steps: [wf.tree] };
+    }
+    if (!Array.isArray(wf.tree.steps)) wf.tree.steps = [];
+    return wf.tree.steps;
+  }
+
+  function appendStep(step, label) {
+    const steps = ensureSequence();
+    if (!steps) return;
+    steps.push(step);
+    render();
+    markDirty();
+    if ($rawStatus) {
+      $rawStatus.textContent = `+ ${label} appended — edit Raw JSON to fill in details, then Save`;
+      $rawStatus.className = 'hint ok';
+    }
+  }
+
+  const $treeIf    = document.getElementById('tree-add-if');
+  const $treeSet   = document.getElementById('tree-add-set');
+  const $treeFor   = document.getElementById('tree-add-for');
+  const $treeWhile = document.getElementById('tree-add-while');
+
+  if ($treeIf) {
+    $treeIf.addEventListener('click', () => appendStep({
+      type: 'if',
+      branches: [
+        {
+          cond: { op: '==', var: 'data.kind', value: 'vip' },
+          then: { type: 'fan_out', nodes: [] }
+        },
+        {
+          then: { type: 'fan_out', nodes: [] }
+        }
+      ]
+    }, 'if'));
+  }
+  if ($treeSet) {
+    $treeSet.addEventListener('click', () => appendStep({
+      type: 'set',
+      path: 'state.example',
+      value: { const: 0 }
+    }, 'set'));
+  }
+  if ($treeFor) {
+    $treeFor.addEventListener('click', () => appendStep({
+      type: 'for',
+      var: 'item',
+      in: [],
+      do: { type: 'call', node: '?' }
+    }, 'for'));
+  }
+  if ($treeWhile) {
+    $treeWhile.addEventListener('click', () => appendStep({
+      type: 'while',
+      cond: { op: '<', var: 'state.iter', value: 3 },
+      maxIter: 10
+    }, 'while'));
+  }
+
   // Phase 5.5a — Raw JSON edit + Apply. Smallest useful editing
   // path until the visual tree editor lands. Parse the textarea
   // into the in-memory wf, then re-render (DAG + tree).
