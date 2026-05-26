@@ -917,6 +917,39 @@ body[data-mode="watch"] #dag .node-badge.on { opacity: 1; }
 select.cond-group-op {
   cursor: pointer;
 }
+/* Phase 5.7.2 — expr builder for set.value */
+.expr-editor {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px;
+  background: rgba(165,214,167,0.08);
+  border: 1px solid rgba(165,214,167,0.30);
+  border-radius: 3px;
+}
+.expr-form {
+  font: 10px var(--font-mono);
+  font-weight: 700;
+  color: #a5d6a7;
+  background: rgba(165,214,167,0.18);
+  border: none;
+  border-radius: 3px;
+  padding: 1px 4px;
+}
+.expr-const-val,
+.expr-var {
+  width: 110px;
+}
+.expr-binop {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.expr-op-glyph {
+  color: var(--fg-muted);
+  font: 12px var(--font-mono);
+  font-weight: 700;
+}
 .cond-arg {
   display: flex;
   align-items: center;
