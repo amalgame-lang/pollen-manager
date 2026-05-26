@@ -1549,40 +1549,43 @@
       block.appendChild(slot);
     });
 
-    // Add-step toolbar
-    const adders = document.createElement('div');
-    adders.className = 'seq-adders';
-    adders.appendChild(makeAddBtn('+ call', () => {
-      steps.push({ type: 'call', node: '' });
+    // Phase 5.7.11 — context-aware insert. When a step is selected
+    // (only meaningful for the root sequence), the adder inserts
+    // immediately AFTER it and re-selects the new step so the
+    // operator can chain inserts naturally. No selection → append
+    // at the end (the original behavior).
+    function insertStep(tmpl) {
+      const isRootSel = isRoot && selectedStepIdx >= 0 && selectedStepIdx < steps.length;
+      const at = isRootSel ? selectedStepIdx + 1 : steps.length;
+      steps.splice(at, 0, tmpl);
+      if (isRootSel) selectedStepIdx = at;
       markDirty(); render();
-    }));
-    adders.appendChild(makeAddBtn('+ fan_out', () => {
-      steps.push({ type: 'fan_out', nodes: [] });
-      markDirty(); render();
-    }));
-    adders.appendChild(makeAddBtn('+ if', () => {
-      steps.push({
+    }
+    function makeAddersBar() {
+      const bar = document.createElement('div');
+      bar.className = 'seq-adders';
+      bar.appendChild(makeAddBtn('+ call', () => insertStep({ type: 'call', node: '' })));
+      bar.appendChild(makeAddBtn('+ fan_out', () => insertStep({ type: 'fan_out', nodes: [] })));
+      bar.appendChild(makeAddBtn('+ if', () => insertStep({
         type: 'if',
         branches: [
           { cond: { op: '==', var: 'data.kind', value: 'vip' }, then: { type: 'fan_out', nodes: [] } },
           { then: { type: 'fan_out', nodes: [] } }
         ]
-      });
-      markDirty(); render();
-    }));
-    adders.appendChild(makeAddBtn('+ set', () => {
-      steps.push({ type: 'set', path: 'state.example', value: { const: 0 } });
-      markDirty(); render();
-    }));
-    adders.appendChild(makeAddBtn('+ for', () => {
-      steps.push({ type: 'for', var: 'item', in: [], do: { type: 'call', node: '' } });
-      markDirty(); render();
-    }));
-    adders.appendChild(makeAddBtn('+ while', () => {
-      steps.push({ type: 'while', cond: { op: '<', var: 'state.iter', value: 3 }, maxIter: 10 });
-      markDirty(); render();
-    }));
-    block.appendChild(adders);
+      })));
+      bar.appendChild(makeAddBtn('+ set', () => insertStep({
+        type: 'set', path: 'state.example', value: { const: 0 } })));
+      bar.appendChild(makeAddBtn('+ for', () => insertStep({
+        type: 'for', var: 'item', in: [], do: { type: 'call', node: '' } })));
+      bar.appendChild(makeAddBtn('+ while', () => insertStep({
+        type: 'while', cond: { op: '<', var: 'state.iter', value: 3 }, maxIter: 10 })));
+      return bar;
+    }
+
+    // Toolbar both at top AND bottom so it stays reachable without
+    // scrolling either way for big workflows.
+    block.insertBefore(makeAddersBar(), block.firstChild);
+    block.appendChild(makeAddersBar());
 
     return block;
   }
