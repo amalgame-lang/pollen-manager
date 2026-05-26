@@ -240,6 +240,35 @@
     const cols = {};
     for (const k of keys) { (cols[rank[k]] ||= []).push(k); }
     const colKeys = Object.keys(cols).map(Number).sort((a, b) => a - b);
+
+    // Phase 5.7.9 — group-aware sort within each column so nodes
+    // sharing a group land next to each other. The group hulls then
+    // form clean rectangles spanning multiple ranks instead of a
+    // patchwork.
+    //
+    // Algo : assign every group a stable slot index by first
+    // appearance across columns (so 'billing' always sits at the
+    // same vertical relative position whether or not its members
+    // appear in every column). Ungrouped nodes keep their natural
+    // order at the bottom of each column.
+    const groupSlot = new Map();
+    let nextSlot = 0;
+    for (const ck of colKeys) {
+      for (const k of cols[ck]) {
+        const g = nodes[k].group;
+        if (g && !groupSlot.has(g)) groupSlot.set(g, nextSlot++);
+      }
+    }
+    for (const ck of colKeys) {
+      cols[ck].sort((a, b) => {
+        const ga = nodes[a].group, gb = nodes[b].group;
+        const sa = ga ? groupSlot.get(ga) : Number.MAX_SAFE_INTEGER;
+        const sb = gb ? groupSlot.get(gb) : Number.MAX_SAFE_INTEGER;
+        if (sa !== sb) return sa - sb;
+        return a.localeCompare(b);
+      });
+    }
+
     const padX = 90, padY = 70;
     const stepX = colKeys.length > 1 ? (CANVAS_W - 2 * padX) / (colKeys.length - 1) : 0;
     const out = {};
@@ -2359,12 +2388,57 @@
     });
   }
 
-  // Empty SVG click → deselect.
+  // Empty SVG click → deselect + start pan.
+  // Phase 5.7.10 — zoom + pan via mouse wheel + drag-on-background.
+  let viewBox = { x: 0, y: 0, w: CANVAS_W, h: CANVAS_H };
+  function applyViewBox() {
+    $svg.setAttribute('viewBox',
+      `${viewBox.x} ${viewBox.y} ${viewBox.w} ${viewBox.h}`);
+  }
+  let pan = null;
   $svg.addEventListener('mousedown', e => {
     if (e.target === $svg || e.target.classList.contains('canvas-bg')) {
       select(null);
+      // Start pan on background drag.
+      pan = { startX: e.clientX, startY: e.clientY,
+              vbX: viewBox.x, vbY: viewBox.y };
+      $svg.style.cursor = 'grabbing';
     }
   });
+  window.addEventListener('mousemove', e => {
+    if (!pan) return;
+    const rect = $svg.getBoundingClientRect();
+    const scaleX = viewBox.w / rect.width;
+    const scaleY = viewBox.h / rect.height;
+    viewBox.x = pan.vbX - (e.clientX - pan.startX) * scaleX;
+    viewBox.y = pan.vbY - (e.clientY - pan.startY) * scaleY;
+    applyViewBox();
+  });
+  window.addEventListener('mouseup', () => {
+    if (pan) { pan = null; $svg.style.cursor = ''; }
+  });
+  $svg.addEventListener('wheel', e => {
+    e.preventDefault();
+    const rect = $svg.getBoundingClientRect();
+    // Cursor position in viewBox coords (anchor for zoom).
+    const cx = viewBox.x + (e.clientX - rect.left) * (viewBox.w / rect.width);
+    const cy = viewBox.y + (e.clientY - rect.top) * (viewBox.h / rect.height);
+    const factor = e.deltaY > 0 ? 1.15 : 1 / 1.15;
+    const nw = Math.max(200, Math.min(8000, viewBox.w * factor));
+    const nh = Math.max(150, Math.min(4500, viewBox.h * factor));
+    // Keep cursor anchor stationary in world coords.
+    viewBox.x = cx - (cx - viewBox.x) * (nw / viewBox.w);
+    viewBox.y = cy - (cy - viewBox.y) * (nh / viewBox.h);
+    viewBox.w = nw;
+    viewBox.h = nh;
+    applyViewBox();
+  }, { passive: false });
+  function resetView() {
+    viewBox = { x: 0, y: 0, w: CANVAS_W, h: CANVAS_H };
+    applyViewBox();
+  }
+  const $resetView = document.getElementById('dag-reset-view');
+  if ($resetView) $resetView.addEventListener('click', resetView);
 
   // Submit-on-Enter inside inspector → Apply (without page reload).
   $form.addEventListener('keydown', e => {
