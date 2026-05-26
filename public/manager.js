@@ -703,6 +703,34 @@
   $delete.addEventListener('click', deleteSelected);
   $apply.addEventListener('click', applyForm);
 
+  // Phase 5.5a — Raw JSON edit + Apply. Smallest useful editing
+  // path until the visual tree editor lands. Parse the textarea
+  // into the in-memory wf, then re-render (DAG + tree).
+  const $applyRaw  = document.getElementById('apply-raw');
+  const $rawStatus = document.getElementById('raw-status');
+  if ($applyRaw) {
+    $applyRaw.addEventListener('click', () => {
+      try {
+        const parsed = JSON.parse($src.value);
+        if (!parsed || typeof parsed !== 'object') {
+          $rawStatus.textContent = 'not an object';
+          $rawStatus.className = 'hint error';
+          return;
+        }
+        // Preserve _layout if not present in pasted JSON.
+        if (!parsed._layout && wf && wf._layout) parsed._layout = wf._layout;
+        wf = parsed;
+        render();
+        markDirty();
+        $rawStatus.textContent = 'tree updated — click Save to persist';
+        $rawStatus.className = 'hint ok';
+      } catch (e) {
+        $rawStatus.textContent = 'parse error: ' + e.message;
+        $rawStatus.className = 'hint error';
+      }
+    });
+  }
+
   // Empty SVG click → deselect.
   $svg.addEventListener('mousedown', e => {
     if (e.target === $svg || e.target.classList.contains('canvas-bg')) {

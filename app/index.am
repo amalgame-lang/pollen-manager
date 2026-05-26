@@ -113,8 +113,12 @@ public class Page {
             "<button type=\"button\" id=\"apply\">Apply</button>" +
             "</form>" +
             "<details id=\"raw-view\">" +
-            "<summary>Raw JSON</summary>" +
-            "<textarea id=\"src\" spellcheck=\"false\" readonly></textarea>" +
+            "<summary>Raw JSON (edit + Apply to update tree)</summary>" +
+            "<textarea id=\"src\" spellcheck=\"false\"></textarea>" +
+            "<div class=\"actions\">" +
+            "<button id=\"apply-raw\">Apply JSON</button>" +
+            "<span id=\"raw-status\" class=\"hint\"></span>" +
+            "</div>" +
             "</details>" +
             // ── Inject debug message (Phase 4.5.5) ──
             // Visible only when ⏸ Debug is on. Manager builds the
