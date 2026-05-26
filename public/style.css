@@ -995,6 +995,31 @@ select.cond-group-op {
 .chip-x:hover { color: var(--danger, #d65560); }
 .chip-add { font-size: 11px; padding: 3px 6px; }
 .chip-lit-add { width: 100px; }
+.chip-add-text {
+  width: 120px;
+  border: 1px dashed var(--line-mid);
+  background: transparent;
+  color: var(--fg);
+  border-radius: 3px;
+  font: 11px var(--font-mono);
+}
+.chip-add-text:focus {
+  outline: none;
+  border-color: var(--accent);
+  border-style: solid;
+}
+/* Inspector chip containers — make them look like form fields. */
+#inspector-form .chips-input {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px 6px;
+  background: var(--bg-2);
+  border: 1px solid var(--line-mid);
+  border-radius: 3px;
+  min-height: 26px;
+  margin-top: 2px;
+}
 
 /* sequence (root + nested) */
 .seq-step {

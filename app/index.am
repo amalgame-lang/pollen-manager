@@ -123,9 +123,9 @@ public class Page {
             "<label>Name <input id=\"f-name\" type=\"text\"></label>" +
             "<label>Host <input id=\"f-host\" type=\"text\" placeholder=\"127.0.0.1\"></label>" +
             "<label>Port <input id=\"f-port\" type=\"number\"></label>" +
-            "<label>Consumes <input id=\"f-consumes\" type=\"text\" placeholder=\"topic1, topic2\"></label>" +
-            "<label>Emits <input id=\"f-emits\" type=\"text\" placeholder=\"topic1, topic2\"></label>" +
-            "<label>Next <input id=\"f-next\" type=\"text\" placeholder=\"node1, node2\"></label>" +
+            "<label>Consumes <div id=\"f-consumes\" class=\"chips chips-input\" data-placeholder=\"topic + Enter\"></div></label>" +
+            "<label>Emits <div id=\"f-emits\" class=\"chips chips-input\" data-placeholder=\"topic + Enter\"></div></label>" +
+            "<label id=\"f-next-row\">Next <div id=\"f-next\" class=\"chips chips-input\" data-placeholder=\"node + Enter\"></div></label>" +
             "<button type=\"button\" id=\"apply\">Apply</button>" +
             "</form>" +
             "<details id=\"raw-view\">" +
