@@ -300,6 +300,14 @@
     $outline.hidden = false;
     $outline.innerHTML = '';
     $outline.appendChild(renderTreeNode(wf.tree));
+    // Re-apply selection styling + toolbar state if we still have
+    // a valid index after the re-render.
+    if (typeof setSelectedStep === 'function') {
+      const steps = (wf.tree && wf.tree.type === 'sequence'
+                     && Array.isArray(wf.tree.steps)) ? wf.tree.steps : [];
+      if (selectedStepIdx >= steps.length) selectedStepIdx = -1;
+      setSelectedStep(selectedStepIdx);
+    }
   }
 
   function summarizeExpr(expr) {
@@ -377,7 +385,17 @@
       const children = document.createElement('ol');
       children.className = 'tree-children';
       const steps = Array.isArray(step.steps) ? step.steps : [];
-      steps.forEach(s => children.appendChild(renderTreeNode(s)));
+      // Phase 5.5c — tag top-level children with their index so the
+      // selection / move / delete toolbar can target them.
+      steps.forEach((s, i) => {
+        const childLi = renderTreeNode(s);
+        childLi.setAttribute('data-step-idx', String(i));
+        childLi.addEventListener('click', ev => {
+          ev.stopPropagation();
+          setSelectedStep(i);
+        });
+        children.appendChild(childLi);
+      });
       li.appendChild(children);
     } else if (t === 'call') {
       head.innerHTML = `<span class="tree-kw">call</span> → <span class="tree-role">${escapeHtml(step.node || '?')}</span>`;
@@ -755,6 +773,65 @@
   $add.addEventListener('click', addNode);
   $delete.addEventListener('click', deleteSelected);
   $apply.addEventListener('click', applyForm);
+
+  // Phase 5.5c — selection + reorder/delete for top-level sequence
+  // steps. Nested edits (branches inside an `if`, body of `for`,
+  // etc) still go through Raw JSON for now.
+  let selectedStepIdx = -1;
+
+  function setSelectedStep(idx) {
+    selectedStepIdx = idx;
+    const $up   = document.getElementById('tree-up');
+    const $down = document.getElementById('tree-down');
+    const $del  = document.getElementById('tree-delete');
+    const steps = (wf && wf.tree && wf.tree.type === 'sequence'
+                   && Array.isArray(wf.tree.steps)) ? wf.tree.steps : [];
+    const valid = idx >= 0 && idx < steps.length;
+    if ($up)   $up.disabled   = !valid || idx === 0;
+    if ($down) $down.disabled = !valid || idx >= steps.length - 1;
+    if ($del)  $del.disabled  = !valid;
+    // Visually mark the selected <li>.
+    const out = document.getElementById('tree-outline');
+    if (out) {
+      out.querySelectorAll('li.tree-node.selected').forEach(li => li.classList.remove('selected'));
+      if (valid) {
+        const li = out.querySelector(`li.tree-node[data-step-idx="${idx}"]`);
+        if (li) li.classList.add('selected');
+      }
+    }
+  }
+
+  function moveStep(delta) {
+    if (selectedStepIdx < 0) return;
+    if (!wf || !wf.tree || wf.tree.type !== 'sequence') return;
+    const steps = wf.tree.steps;
+    const j = selectedStepIdx + delta;
+    if (j < 0 || j >= steps.length) return;
+    const tmp = steps[selectedStepIdx];
+    steps[selectedStepIdx] = steps[j];
+    steps[j] = tmp;
+    selectedStepIdx = j;
+    render();
+    markDirty();
+    setSelectedStep(selectedStepIdx);
+  }
+
+  function deleteStep() {
+    if (selectedStepIdx < 0) return;
+    if (!wf || !wf.tree || wf.tree.type !== 'sequence') return;
+    wf.tree.steps.splice(selectedStepIdx, 1);
+    selectedStepIdx = -1;
+    render();
+    markDirty();
+    setSelectedStep(-1);
+  }
+
+  const $treeUp   = document.getElementById('tree-up');
+  const $treeDown = document.getElementById('tree-down');
+  const $treeDel  = document.getElementById('tree-delete');
+  if ($treeUp)   $treeUp.addEventListener('click',   () => moveStep(-1));
+  if ($treeDown) $treeDown.addEventListener('click', () => moveStep(+1));
+  if ($treeDel)  $treeDel.addEventListener('click',  () => deleteStep());
 
   // Phase 5.5b — toolbar buttons append a template step at the end
   // of the top-level sequence. User edits values via Raw JSON or
