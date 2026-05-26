@@ -318,13 +318,39 @@
   }
 
   function summarizeCond(branch) {
-    // Branch shape : {op, var, value, then}. Missing op = else.
-    if (!branch || branch.op === undefined) return '<b>else</b>';
-    const v = branch.value;
+    // Phase 5.4.1 — branch can carry a `cond` field with a composite
+    // expression {op:"and|or|not",…}, or legacy flat fields
+    // (op + var + value) at top of the branch object. Missing both
+    // = else.
+    if (!branch) return '<b>else</b>';
+    if (branch.cond && typeof branch.cond === 'object') {
+      return summarizeCondExpr(branch.cond);
+    }
+    if (branch.op === undefined) return '<b>else</b>';
+    return summarizeCondLeaf(branch);
+  }
+
+  function summarizeCondLeaf(c) {
+    const v = c.value;
     const vStr = (typeof v === 'string')
       ? JSON.stringify(v)
       : (v === null || v === undefined ? '?' : String(v));
-    return `<code>${escapeHtml(branch.var || '?')}</code> <b>${escapeHtml(branch.op)}</b> ${escapeHtml(vStr)}`;
+    return `<code>${escapeHtml(c.var || '?')}</code> <b>${escapeHtml(c.op)}</b> ${escapeHtml(vStr)}`;
+  }
+
+  function summarizeCondExpr(c) {
+    if (!c || typeof c !== 'object') return '<i>?</i>';
+    const op = c.op;
+    if (op === 'and' || op === 'or') {
+      const args = Array.isArray(c.args) ? c.args : [];
+      const joined = args.map(summarizeCondExpr).join(` <b>${op.toUpperCase()}</b> `);
+      return args.length > 1 ? `(${joined})` : joined;
+    }
+    if (op === 'not') {
+      return `<b>NOT</b> ${summarizeCondExpr(c.arg)}`;
+    }
+    // Leaf — same shape as a branch.
+    return summarizeCondLeaf(c);
   }
 
   function escapeHtml(s) {
@@ -369,9 +395,13 @@
       branches.forEach((b, idx) => {
         const bli = document.createElement('li');
         bli.className = 'tree-branch';
-        const label = (idx === 0)
-          ? 'when'
-          : (b.op === undefined ? 'else' : 'elseif');
+        // A branch has a cond when either `cond` (new composite
+        // form) or `op` (legacy flat leaf) is present. Without
+        // either, it's the else branch.
+        const hasCond = (b && (b.cond !== undefined || b.op !== undefined));
+        const label = !hasCond
+          ? 'else'
+          : (idx === 0 ? 'when' : 'elseif');
         const cond = (label === 'else')
           ? '<b>else</b>'
           : `<span class="tree-kw-sub">${label}</span> ${summarizeCond(b)}`;
