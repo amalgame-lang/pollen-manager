@@ -32,8 +32,12 @@
   const SVG_NS = 'http://www.w3.org/2000/svg';
   const NODE_W = 110;
   const NODE_H = 46;
-  const CANVAS_W = 800;
-  const CANVAS_H = 420;
+  // Phase 5.7.7 — bigger virtual canvas so big workflows have
+  // breathing room. The SVG element stretches via CSS to fill the
+  // viewport ; viewBox below matches these dims so the layout
+  // doesn't get squeezed into a 800×420 box.
+  const CANVAS_W = 1600;
+  const CANVAS_H = 900;
 
   const $modeEdit  = document.getElementById('mode-edit');
   const $modeWatch = document.getElementById('mode-watch');
