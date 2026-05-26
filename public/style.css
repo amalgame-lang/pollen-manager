@@ -349,11 +349,15 @@ header .subtitle {
 
 main {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 340px;
+  grid-template-columns: minmax(0, 1fr) 380px;
   gap: var(--gap);
-  padding: var(--gap) 28px 28px;
-  max-width: 1440px;
-  margin: 0 auto;
+  padding: var(--gap) 20px 20px;
+  /* Phase 5.7.7 — full-bleed : kill the 1440 cap so wide screens
+   * actually use their width. The right column still has a fixed
+   * width so the inspector stays readable ; everything else
+   * stretches. */
+  max-width: none;
+  margin: 0;
 }
 
 section, aside {
@@ -425,7 +429,10 @@ button#save.pulse {
 /* ── DAG canvas ───────────────────────────────────────────── */
 #dag {
   width: 100%;
-  height: 460px;
+  /* Phase 5.7.7 — use most of the viewport for the canvas so big
+   * workflows have room to lay out without scrolling. */
+  height: calc(100vh - 280px);
+  min-height: 400px;
   background: var(--bg-0);
   border: 1px solid var(--line-low);
   border-radius: var(--radius-sm);

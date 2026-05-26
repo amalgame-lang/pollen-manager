@@ -69,7 +69,7 @@ public class Page {
             "<button id=\"dag-relayout\" title=\"Recompute node positions from current tree topology\">↻ Re-layout</button>" +
             "</div>" +
             "</div>" +
-            "<svg id=\"dag\" viewBox=\"0 0 800 420\"></svg>" +
+            "<svg id=\"dag\" viewBox=\"0 0 1600 900\" preserveAspectRatio=\"xMidYMid meet\"></svg>" +
             "<p class=\"hint\">Drag nodes to reposition · Click to select · Layout persists in <code>_layout</code></p>" +
             // ── Workflow tree (Phase 5.x) ──
             // Renders the v2 `tree` field as a nested outline so the
