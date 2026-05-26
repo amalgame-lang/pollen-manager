@@ -468,6 +468,12 @@ button#save.pulse {
   text-anchor: middle;
   pointer-events: none;
 }
+#dag .node-sets {
+  font: 9px var(--font-mono);
+  fill: #a5d6a7;
+  text-anchor: middle;
+  pointer-events: none;
+}
 #dag .edge {
   stroke: var(--fg-muted);
   stroke-width: 1.5;
