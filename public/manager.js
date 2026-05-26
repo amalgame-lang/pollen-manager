@@ -350,6 +350,11 @@
         lbl.setAttribute('text-anchor', 'middle');
         lbl.textContent = e.label;
         $svg.appendChild(lbl);
+        // Phase 5.7.5 — keep label glued to its line. moveNode
+        // walks edgesFrom/edgesTo and we need to update the label
+        // alongside the geometry, so we store it on the line.
+        line._label = lbl;
+        line._isSelfLoop = isSelfLoop;
       }
     }
 
@@ -1483,10 +1488,35 @@
     for (const line of entry.edgesFrom) {
       line.setAttribute('x1', x + NODE_W / 2);
       line.setAttribute('y1', y);
+      updateEdgeLabel(line);
     }
     for (const line of entry.edgesTo) {
       line.setAttribute('x2', x - NODE_W / 2);
       line.setAttribute('y2', y);
+      updateEdgeLabel(line);
+    }
+  }
+
+  // Phase 5.7.5 — reposition the label attached to a <line> /
+  // <path> edge after a node has been dragged. The label always
+  // sits at the line midpoint (regular edge) or above the source
+  // (self-loop), so we recompute from the current SVG coords.
+  function updateEdgeLabel(line) {
+    const lbl = line._label;
+    if (!lbl) return;
+    if (line._isSelfLoop) {
+      const from = line.dataset.from;
+      const a = wf._layout[from];
+      if (!a) return;
+      lbl.setAttribute('x', a.x);
+      lbl.setAttribute('y', a.y - NODE_H / 2 - 30);
+    } else {
+      const x1 = Number(line.getAttribute('x1'));
+      const y1 = Number(line.getAttribute('y1'));
+      const x2 = Number(line.getAttribute('x2'));
+      const y2 = Number(line.getAttribute('y2'));
+      lbl.setAttribute('x', (x1 + x2) / 2);
+      lbl.setAttribute('y', (y1 + y2) / 2 - 4);
     }
   }
 
