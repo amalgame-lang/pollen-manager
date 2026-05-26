@@ -476,6 +476,22 @@ button#save.pulse {
   pointer-events: none;
 }
 #dag .group-hull { pointer-events: none; }
+/* Phase 5.7.13 — focus mode dims everything outside the
+ * reachable set (upstream + downstream of the selected node). */
+#dag .node-group.dimmed,
+#dag .edge.dimmed {
+  opacity: 0.12;
+  transition: opacity 200ms ease;
+}
+#dag .node-group:not(.dimmed),
+#dag .edge:not(.dimmed) {
+  transition: opacity 200ms ease;
+}
+body.focus-active #dag .node-group:not(.dimmed) .node-rect {
+  stroke: var(--accent);
+  stroke-width: 2;
+  filter: drop-shadow(0 0 4px var(--accent-glow));
+}
 #dag .group-label {
   font: 11px var(--font-mono);
   font-weight: 700;

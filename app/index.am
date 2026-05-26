@@ -68,6 +68,7 @@ public class Page {
             "<button id=\"delete-node\" disabled>Delete selected</button>" +
             "<button id=\"dag-relayout\" title=\"Recompute node positions from current tree topology + groups\">↻ Re-layout</button>" +
             "<button id=\"dag-reset-view\" title=\"Reset zoom + pan\">⌂ Reset view</button>" +
+            "<button id=\"dag-focus\" title=\"Focus on selected node : highlight its upstream + downstream chain, dim the rest. Esc or click background to exit.\">🎯 Focus</button>" +
             "</div>" +
             "</div>" +
             "<svg id=\"dag\" viewBox=\"0 0 1600 900\" preserveAspectRatio=\"xMidYMid meet\"></svg>" +

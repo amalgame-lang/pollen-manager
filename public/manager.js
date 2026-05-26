@@ -2404,6 +2404,11 @@
   $svg.addEventListener('mousedown', e => {
     if (e.target === $svg || e.target.classList.contains('canvas-bg')) {
       select(null);
+      // Phase 5.7.13 — clicking the canvas background also exits
+      // focus mode (visual signal : "I'm done tracing this flow").
+      if (document.body.classList.contains('focus-active')) {
+        clearFocus();
+      }
       // Start pan on background drag.
       pan = { startX: e.clientX, startY: e.clientY,
               vbX: viewBox.x, vbY: viewBox.y };
@@ -2444,6 +2449,93 @@
   }
   const $resetView = document.getElementById('dag-reset-view');
   if ($resetView) $resetView.addEventListener('click', resetView);
+
+  // Phase 5.7.13 — Focus mode. Compute upstream + downstream
+  // reachable set from `selected`, dim the rest. Esc / click on
+  // canvas-bg exits.
+  function computeReachable(role) {
+    if (!role || !wf) return new Set();
+    const edges = (wf.tree && typeof wf.tree === 'object')
+      ? deriveEdgesFromTree(wf)
+      : (() => {
+          const out = [];
+          for (const [from, n] of Object.entries(wf.nodes || {})) {
+            for (const to of (n.next || [])) {
+              if (wf.nodes[to]) out.push({ from, to });
+            }
+          }
+          return out;
+        })();
+    const fwd = new Map(); const rev = new Map();
+    for (const e of edges) {
+      (fwd.get(e.from) || fwd.set(e.from, new Set()).get(e.from)).add(e.to);
+      (rev.get(e.to)   || rev.set(e.to, new Set()).get(e.to)).add(e.from);
+    }
+    const reach = new Set([role]);
+    function walk(map, start) {
+      const q = [start];
+      while (q.length) {
+        const k = q.shift();
+        const nbrs = map.get(k);
+        if (!nbrs) continue;
+        for (const n of nbrs) {
+          if (reach.has(n)) continue;
+          reach.add(n);
+          q.push(n);
+        }
+      }
+    }
+    walk(fwd, role);
+    walk(rev, role);
+    return reach;
+  }
+
+  function applyFocus(role) {
+    const reach = computeReachable(role);
+    document.body.classList.add('focus-active');
+    for (const [k, entry] of nodeIndex.entries()) {
+      if (!entry || !entry.g) continue;
+      entry.g.classList.toggle('dimmed', !reach.has(k));
+    }
+    // Edges : dim if either endpoint is out of the reachable set.
+    for (const line of $svg.querySelectorAll('.edge')) {
+      const from = line.dataset.from, to = line.dataset.to;
+      const dim = !(reach.has(from) && reach.has(to));
+      line.classList.toggle('dimmed', dim);
+    }
+    for (const lbl of $svg.querySelectorAll('.edge-label')) {
+      // Edge labels don't carry data-from/to — we just dim along
+      // with their parent line via CSS sibling logic (handled below).
+      lbl.classList.toggle('dimmed', false);
+    }
+    setStatus(`focus → ${role} (${reach.size} reachable). Esc to exit.`, 'ok');
+  }
+
+  function clearFocus() {
+    document.body.classList.remove('focus-active');
+    for (const [, entry] of nodeIndex.entries()) {
+      if (entry && entry.g) entry.g.classList.remove('dimmed');
+    }
+    for (const line of $svg.querySelectorAll('.edge.dimmed')) {
+      line.classList.remove('dimmed');
+    }
+  }
+
+  const $focus = document.getElementById('dag-focus');
+  if ($focus) {
+    $focus.addEventListener('click', () => {
+      if (!selected) {
+        setStatus('focus : select a node first', 'error');
+        return;
+      }
+      applyFocus(selected);
+    });
+  }
+  window.addEventListener('keydown', ev => {
+    if (ev.key === 'Escape' && document.body.classList.contains('focus-active')) {
+      clearFocus();
+    }
+  });
 
   // Submit-on-Enter inside inspector → Apply (without page reload).
   $form.addEventListener('keydown', e => {
