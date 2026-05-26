@@ -81,10 +81,12 @@ public class Page {
             "<div class=\"section-head tree-head\">" +
             "<h2>Tree <span id=\"tree-schema-tag\" class=\"tag\"></span></h2>" +
             "<div class=\"toolbar\">" +
-            "<button id=\"tree-add-if\" title=\"Append an if/elseif/else template at the end of the top-level sequence\">+ if</button>" +
-            "<button id=\"tree-add-set\" title=\"Append a set state.X step\">+ set</button>" +
-            "<button id=\"tree-add-for\" title=\"Append a for var in [items] step\">+ for</button>" +
-            "<button id=\"tree-add-while\" title=\"Append a while cond + maxIter step\">+ while</button>" +
+            "<button id=\"tree-add-call\" title=\"Insert a call step (after selection, or at end)\">+ call</button>" +
+            "<button id=\"tree-add-fan_out\" title=\"Insert a fan_out step (after selection, or at end)\">+ fan_out</button>" +
+            "<button id=\"tree-add-if\" title=\"Insert an if/elseif/else (after selection, or at end)\">+ if</button>" +
+            "<button id=\"tree-add-set\" title=\"Insert a set state.X step (after selection, or at end)\">+ set</button>" +
+            "<button id=\"tree-add-for\" title=\"Insert a for var in [items] step (after selection, or at end)\">+ for</button>" +
+            "<button id=\"tree-add-while\" title=\"Insert a while cond + maxIter step (after selection, or at end)\">+ while</button>" +
             "<span class=\"toolbar-sep\"></span>" +
             "<button id=\"tree-up\" disabled title=\"Move selected step up\">↑</button>" +
             "<button id=\"tree-down\" disabled title=\"Move selected step down\">↓</button>" +
