@@ -50,6 +50,42 @@ public class Page {
             "<button id=\"dbg-cancel\" class=\"danger\" title=\"Esc\">✕ Cancel</button>" +
             "</div>" +
             "</div>" +
+            "<div id=\"bp-cond-modal\" hidden>" +
+            "<div class=\"bp-cond-backdrop\"></div>" +
+            "<div class=\"bp-cond-card\">" +
+            "<div class=\"bp-cond-head\">" +
+            "<span class=\"bp-cond-title\">Breakpoint condition · <span id=\"bp-cond-role\"></span></span>" +
+            "<button id=\"bp-cond-close\" class=\"bp-cond-close\" title=\"Cancel (Esc)\">✕</button>" +
+            "</div>" +
+            "<label class=\"bp-cond-label\" for=\"bp-cond-input\">Pause only when this expression is true. Leave empty to always pause.</label>" +
+            "<textarea id=\"bp-cond-input\" spellcheck=\"false\" rows=\"3\" placeholder=\"data.amount > 1000 and data.user.tier == &quot;vip&quot;\"></textarea>" +
+            "<div id=\"bp-cond-status\" class=\"bp-cond-status\"></div>" +
+            "<details class=\"bp-cond-help\" open>" +
+            "<summary>Syntax cheatsheet</summary>" +
+            "<table class=\"bp-cond-syntax\">" +
+            "<tr><th>Form</th><th>Example</th></tr>" +
+            "<tr><td>Comparison</td><td><code>data.amount &gt; 1000</code></td></tr>" +
+            "<tr><td>String equality</td><td><code>data.user.tier == \"vip\"</code></td></tr>" +
+            "<tr><td>Compound and</td><td><code>data.amount &gt; 1000 and data.tier == \"vip\"</code></td></tr>" +
+            "<tr><td>Compound or</td><td><code>data.urgent == true or data.amount &gt; 5000</code></td></tr>" +
+            "<tr><td>Negation</td><td><code>not data.processed</code></td></tr>" +
+            "<tr><td>Membership</td><td><code>data.user.tier in [\"vip\",\"gold\"]</code></td></tr>" +
+            "<tr><td>Parentheses</td><td><code>(data.a == 1 or data.a == 2) and data.b &gt; 0</code></td></tr>" +
+            "</table>" +
+            "<p class=\"bp-cond-hint\"><strong>Operators :</strong> <code>== != &lt; &gt; &lt;= &gt;=</code> · <code>and or not in not_in</code></p>" +
+            "<p class=\"bp-cond-hint\"><strong>Paths :</strong> <code>data.X</code> (the message payload), <code>msg.X</code> or <code>envelope.X</code> (any envelope field — <code>messageId</code>, <code>topic.uuid</code>, …). Bare <code>X</code> is shorthand for <code>data.X</code>.</p>" +
+            "<p class=\"bp-cond-hint\"><strong>Values :</strong> numbers (<code>42</code>, <code>-1.5</code>), quoted strings (<code>\"foo\"</code> or <code>'foo'</code>), <code>true</code> / <code>false</code> / <code>null</code>.</p>" +
+            "<p class=\"bp-cond-hint\"><strong>Gotchas :</strong> a missing field returns false (no pause). Parse errors fall back to pause (fail-safe).</p>" +
+            "<p class=\"bp-cond-hint\"><a href=\"https://github.com/amalgame-lang/pollen-manager/blob/master/docs/conditional-breakpoints.md\" target=\"_blank\" rel=\"noopener\">Full documentation →</a></p>" +
+            "</details>" +
+            "<div class=\"bp-cond-actions\">" +
+            "<button id=\"bp-cond-remove\" class=\"danger\" hidden>Remove condition</button>" +
+            "<span class=\"bp-cond-spacer\"></span>" +
+            "<button id=\"bp-cond-cancel\">Cancel</button>" +
+            "<button id=\"bp-cond-apply\" class=\"primary\">Apply</button>" +
+            "</div>" +
+            "</div>" +
+            "</div>" +
             "<div id=\"dbg-mutate-panel\" hidden>" +
             "<label>Edit msg.data — operator sees the current value, types a new one, picks an apply mode :</label>" +
             "<textarea id=\"dbg-mutate-data\" spellcheck=\"false\" rows=\"4\"></textarea>" +
