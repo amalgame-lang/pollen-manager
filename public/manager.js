@@ -1272,12 +1272,64 @@
     steps.forEach((s, i) => {
       const slot = document.createElement('div');
       slot.className = 'seq-step';
-      slot.setAttribute('data-step-idx', isRoot ? String(i) : '');
+      slot.setAttribute('data-step-idx', String(i));
+
+      // Phase 5.7.4 — drag handle on the left of the controls.
+      // Native HTML5 DnD : the handle owns the draggable=true
+      // attribute, so the user only initiates a drag when grabbing
+      // the handle (text inputs etc inside the step stay clickable).
+      const handle = document.createElement('span');
+      handle.className = 'seq-drag-handle';
+      handle.innerHTML = '⋮⋮';
+      handle.title = 'Drag to reorder';
+      handle.draggable = true;
+      handle.addEventListener('dragstart', ev => {
+        ev.dataTransfer.effectAllowed = 'move';
+        ev.dataTransfer.setData('text/plain', String(i));
+        slot.classList.add('dragging');
+      });
+      handle.addEventListener('dragend', () => {
+        slot.classList.remove('dragging');
+        block.querySelectorAll('.seq-step.drop-above, .seq-step.drop-below')
+          .forEach(el => el.classList.remove('drop-above', 'drop-below'));
+      });
+
+      slot.addEventListener('dragover', ev => {
+        ev.preventDefault();
+        ev.dataTransfer.dropEffect = 'move';
+        const rect = slot.getBoundingClientRect();
+        const above = ev.clientY < rect.top + rect.height / 2;
+        slot.classList.toggle('drop-above', above);
+        slot.classList.toggle('drop-below', !above);
+      });
+      slot.addEventListener('dragleave', () => {
+        slot.classList.remove('drop-above', 'drop-below');
+      });
+      slot.addEventListener('drop', ev => {
+        ev.preventDefault();
+        const srcStr = ev.dataTransfer.getData('text/plain');
+        const src = parseInt(srcStr, 10);
+        if (Number.isNaN(src) || src === i) {
+          slot.classList.remove('drop-above', 'drop-below');
+          return;
+        }
+        const rect = slot.getBoundingClientRect();
+        const above = ev.clientY < rect.top + rect.height / 2;
+        // Compute the post-removal insertion index.
+        let dst = above ? i : i + 1;
+        const moved = steps[src];
+        steps.splice(src, 1);
+        if (src < dst) dst -= 1;
+        steps.splice(dst, 0, moved);
+        if (isRoot && selectedStepIdx === src) selectedStepIdx = dst;
+        markDirty();
+        render();
+      });
 
       const child = buildAction(s, null, null);
-      // Wrap with controls : delete button for sequence members.
       const ctl = document.createElement('div');
       ctl.className = 'seq-controls';
+      ctl.appendChild(handle);
       ctl.appendChild(makeDeleteBtn(() => {
         steps.splice(i, 1);
         if (isRoot && selectedStepIdx === i) selectedStepIdx = -1;
