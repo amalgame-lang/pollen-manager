@@ -468,6 +468,14 @@ button#save.pulse {
   text-anchor: middle;
   pointer-events: none;
 }
+#dag .group-hull { pointer-events: none; }
+#dag .group-label {
+  font: 11px var(--font-mono);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
 #dag .node-sets {
   font: 9px var(--font-mono);
   fill: #a5d6a7;
@@ -754,6 +762,17 @@ body[data-mode="watch"] #dag .node-badge.on { opacity: 1; }
   color: var(--fg-muted);
   font-weight: 600;
 }
+.block-collapse {
+  background: transparent;
+  color: var(--fg-muted);
+  border: none;
+  cursor: pointer;
+  font: 11px var(--font-mono);
+  padding: 0 4px;
+  min-width: 16px;
+}
+.block-collapse:hover { color: var(--accent); }
+.block.collapsed > .block-body { display: none; }
 .block-call { border-left: 3px solid #93c5fd; }
 .block-fan-out { border-left: 3px solid #6c9af0; }
 .block-set { border-left: 3px solid #a5d6a7; }
