@@ -696,6 +696,35 @@ body[data-mode="watch"] #dag .node-badge.on { opacity: 1; }
 .tree-head .toolbar button.danger {
   color: var(--danger, #d65560);
 }
+#tree-step-edit {
+  margin-top: 8px;
+  border: 1px solid var(--line-low);
+  border-radius: 4px;
+  padding: 8px 10px;
+  background: var(--bg-mid);
+}
+#tree-step-edit > summary {
+  cursor: pointer;
+  font: 11px var(--font-mono);
+  color: var(--fg-muted);
+  user-select: none;
+}
+#tree-step-edit #tree-step-label {
+  color: var(--accent);
+  font-weight: 600;
+}
+#tree-step-src {
+  width: 100%;
+  margin-top: 8px;
+  font: 11px var(--font-mono);
+  background: var(--bg-low);
+  color: var(--fg);
+  border: 1px solid var(--line-low);
+  border-radius: 3px;
+  padding: 6px 8px;
+  resize: vertical;
+  box-sizing: border-box;
+}
 #tree-outline .tree-node > div,
 #tree-outline .tree-branch > div {
   display: inline-block;

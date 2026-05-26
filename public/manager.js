@@ -799,7 +799,66 @@
         if (li) li.classList.add('selected');
       }
     }
+    // Step editor panel — show the JSON of the selected step so the
+    // user can tweak fields without scrolling through the whole
+    // workflow's Raw JSON.
+    const $editPanel  = document.getElementById('tree-step-edit');
+    const $editSrc    = document.getElementById('tree-step-src');
+    const $editLabel  = document.getElementById('tree-step-label');
+    const $editStatus = document.getElementById('tree-step-status');
+    if ($editPanel && $editSrc) {
+      if (valid) {
+        const step = steps[idx];
+        $editPanel.hidden = false;
+        $editPanel.open = true;
+        if ($editLabel) {
+          $editLabel.textContent = `${step.type || '?'} @ index ${idx}`;
+        }
+        $editSrc.value = JSON.stringify(step, null, 2);
+        if ($editStatus) { $editStatus.textContent = ''; $editStatus.className = 'hint'; }
+      } else {
+        $editPanel.hidden = true;
+        if ($editLabel) $editLabel.textContent = 'none';
+        $editSrc.value = '';
+      }
+    }
   }
+
+  function applyStepEdit() {
+    if (selectedStepIdx < 0) return;
+    if (!wf || !wf.tree || wf.tree.type !== 'sequence') return;
+    const $editSrc    = document.getElementById('tree-step-src');
+    const $editStatus = document.getElementById('tree-step-status');
+    if (!$editSrc) return;
+    try {
+      const parsed = JSON.parse($editSrc.value);
+      if (!parsed || typeof parsed !== 'object' || !parsed.type) {
+        if ($editStatus) {
+          $editStatus.textContent = 'step needs an object with a "type" field';
+          $editStatus.className = 'hint error';
+        }
+        return;
+      }
+      wf.tree.steps[selectedStepIdx] = parsed;
+      render();
+      markDirty();
+      // Re-apply selection so the panel stays open with the new
+      // (now-canonical) JSON shown.
+      setSelectedStep(selectedStepIdx);
+      if ($editStatus) {
+        $editStatus.textContent = 'step updated — click Save to persist';
+        $editStatus.className = 'hint ok';
+      }
+    } catch (e) {
+      if ($editStatus) {
+        $editStatus.textContent = 'parse error: ' + e.message;
+        $editStatus.className = 'hint error';
+      }
+    }
+  }
+
+  const $treeStepApply = document.getElementById('tree-step-apply');
+  if ($treeStepApply) $treeStepApply.addEventListener('click', applyStepEdit);
 
   function moveStep(delta) {
     if (selectedStepIdx < 0) return;
