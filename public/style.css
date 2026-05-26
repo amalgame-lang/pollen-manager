@@ -476,6 +476,25 @@ button#save.pulse {
   opacity: 0.85;
 }
 #dag .edge:hover { stroke: var(--accent); opacity: 1; }
+/* Phase 5.5f — kind-specific edge styling so if branches stand
+ * out from plain calls. */
+#dag .edge-fan_out { stroke: #6c9af0; }
+#dag .edge-while   { stroke: #e3a55a; stroke-dasharray: 4 3; }
+/* `for` edges share the call style — the label carries the info. */
+
+#dag .edge-label {
+  font: 10px var(--font-mono);
+  fill: var(--fg-muted);
+  pointer-events: none;
+  paint-order: stroke fill;
+  stroke: var(--bg-0);
+  stroke-width: 3;
+  stroke-linejoin: round;
+}
+#dag .edge-label-while   { fill: #e3a55a; }
+#dag .edge-label-fan_out { fill: #6c9af0; }
+#dag .edge-label-flow,
+#dag .edge-label-call    { fill: var(--fg-muted); }
 #dag .edge.flash {
   stroke: var(--accent);
   stroke-width: 2.5;

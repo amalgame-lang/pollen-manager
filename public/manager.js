@@ -74,14 +74,88 @@
     }
   }
 
+  // Phase 5.5f — derive DAG edges from the v2 tree so the SVG
+  // canvas shows the actual routing (call → next, fan_out splits,
+  // if branches, for/while loops). For v1 workflows we fall back
+  // to the per-node `next: [...]` arrays.
+  function deriveEdgesFromTree(wf) {
+    const nodes = wf.nodes || {};
+    const out = [];
+    function emit(from, to, kind, label) {
+      if (!nodes[from] || !nodes[to]) return;
+      out.push({ from, to, kind: kind || 'flow', label: label || '' });
+    }
+    // walk(step, frontier) emits edges from each `frontier` source
+    // up to and inside `step`. Returns the new frontier — i.e. the
+    // node names that follow-up steps would dispatch from.
+    function walk(step, frontier, label) {
+      if (!step || typeof step !== 'object') return frontier;
+      const t = step.type;
+      if (t === 'sequence') {
+        let cur = frontier;
+        const steps = Array.isArray(step.steps) ? step.steps : [];
+        for (const s of steps) cur = walk(s, cur, label);
+        return cur;
+      }
+      if (t === 'call') {
+        if (step.node) {
+          frontier.forEach(f => emit(f, step.node, 'call', label || ''));
+          return [step.node];
+        }
+        return frontier;
+      }
+      if (t === 'fan_out') {
+        const targets = Array.isArray(step.nodes) ? step.nodes : [];
+        const eff = label || 'fan_out';
+        frontier.forEach(f => targets.forEach(tt => emit(f, tt, 'fan_out', eff)));
+        return targets.slice();
+      }
+      if (t === 'if') {
+        const branches = Array.isArray(step.branches) ? step.branches : [];
+        const merged = [];
+        branches.forEach((b, i) => {
+          const isElse = !(b && (b.cond !== undefined || b.op !== undefined));
+          const branchLabel = isElse ? 'else'
+                            : (i === 0 ? 'when' : 'elseif');
+          if (b && b.then) {
+            const after = walk(b.then, frontier, branchLabel);
+            after.forEach(n => { if (merged.indexOf(n) < 0) merged.push(n); });
+          }
+        });
+        return merged;
+      }
+      if (t === 'for') {
+        const eff = `for ${step.var || 'item'}`;
+        const after = step.do ? walk(step.do, frontier, eff) : frontier;
+        return after;
+      }
+      if (t === 'while') {
+        // Self-loop on each frontier node — while continues at the
+        // same role until cond becomes false.
+        frontier.forEach(f => emit(f, f, 'while', 'while'));
+        return frontier;
+      }
+      // set / end / unknown — passthrough.
+      return frontier;
+    }
+    walk(wf.tree, [], '');
+    return out;
+  }
+
   function topoLayout(wf) {
     const nodes = wf.nodes || {};
     const keys = Object.keys(nodes);
     if (!keys.length) return {};
     const edges = [];
-    for (const k of keys) {
-      for (const tgt of (nodes[k].next || [])) {
-        if (nodes[tgt]) edges.push({ from: k, to: tgt });
+    // v2 with a tree → derive ; v1 with per-node next[] → flat.
+    if (wf.tree && typeof wf.tree === 'object') {
+      const derived = deriveEdgesFromTree(wf);
+      derived.forEach(e => edges.push({ from: e.from, to: e.to }));
+    } else {
+      for (const k of keys) {
+        for (const tgt of (nodes[k].next || [])) {
+          if (nodes[tgt]) edges.push({ from: k, to: tgt });
+        }
       }
     }
     const indeg = Object.fromEntries(keys.map(k => [k, 0]));
@@ -150,24 +224,66 @@
       nodeIndex.set(k, { g: null, edgesFrom: [], edgesTo: [] });
     }
 
+    // Phase 5.5f — collect the edge list. v2 → derived from tree
+     // (so if/for/while routes show up), v1 → per-node next[].
+    let edgeList = [];
+    if (wf.tree && typeof wf.tree === 'object') {
+      edgeList = deriveEdgesFromTree(wf);
+    } else {
+      for (const [from, n] of Object.entries(wf.nodes)) {
+        for (const to of (n.next || [])) {
+          if (wf.nodes[to]) edgeList.push({ from, to, kind: 'flow', label: '' });
+        }
+      }
+    }
+
     // Edges first, so nodes draw on top.
-    for (const [from, n] of Object.entries(wf.nodes)) {
-      const a = wf._layout[from];
-      if (!a) continue;
-      for (const to of (n.next || [])) {
-        const b = wf._layout[to];
-        if (!b) continue;
-        const line = document.createElementNS(SVG_NS, 'line');
-        line.setAttribute('class', 'edge');
+    for (const e of edgeList) {
+      const a = wf._layout[e.from];
+      const b = wf._layout[e.to];
+      if (!a || !b) continue;
+      const isSelfLoop = (e.from === e.to);
+      const line = document.createElementNS(SVG_NS, isSelfLoop ? 'path' : 'line');
+      const cssClass = 'edge edge-' + (e.kind || 'flow');
+      line.setAttribute('class', cssClass);
+      if (isSelfLoop) {
+        // Small arc above the node : start at top-right, sweep up
+        // and around, land on top-left with an arrow.
+        const ax = a.x + NODE_W / 4;
+        const ay = a.y - NODE_H / 2;
+        const bx = a.x - NODE_W / 4;
+        const by = a.y - NODE_H / 2;
+        const c = `M ${ax} ${ay} C ${ax + 30} ${ay - 50}, ${bx - 30} ${by - 50}, ${bx} ${by}`;
+        line.setAttribute('d', c);
+        line.setAttribute('fill', 'none');
+      } else {
         line.setAttribute('x1', a.x + NODE_W / 2);
         line.setAttribute('y1', a.y);
         line.setAttribute('x2', b.x - NODE_W / 2);
         line.setAttribute('y2', b.y);
-        line.dataset.from = from;
-        line.dataset.to = to;
-        $svg.appendChild(line);
-        nodeIndex.get(from).edgesFrom.push(line);
-        if (nodeIndex.get(to)) nodeIndex.get(to).edgesTo.push(line);
+      }
+      line.dataset.from = e.from;
+      line.dataset.to = e.to;
+      $svg.appendChild(line);
+      nodeIndex.get(e.from).edgesFrom.push(line);
+      if (nodeIndex.get(e.to)) nodeIndex.get(e.to).edgesTo.push(line);
+
+      // Label : draw a text element at the midpoint when the edge
+      // carries routing context (if branch / for / while etc).
+      if (e.label) {
+        const mx = isSelfLoop
+          ? a.x
+          : (a.x + NODE_W / 2 + b.x - NODE_W / 2) / 2;
+        const my = isSelfLoop
+          ? a.y - NODE_H / 2 - 30
+          : (a.y + b.y) / 2 - 4;
+        const lbl = document.createElementNS(SVG_NS, 'text');
+        lbl.setAttribute('class', 'edge-label edge-label-' + (e.kind || 'flow'));
+        lbl.setAttribute('x', mx);
+        lbl.setAttribute('y', my);
+        lbl.setAttribute('text-anchor', 'middle');
+        lbl.textContent = e.label;
+        $svg.appendChild(lbl);
       }
     }
 
