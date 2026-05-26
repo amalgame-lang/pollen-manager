@@ -60,11 +60,75 @@
   function markDirty() {
     dirty = true;
     $save.classList.add('pulse');
+    pushSnapshot();
   }
 
   function markClean() {
     dirty = false;
     $save.classList.remove('pulse');
+  }
+
+  // Phase 5.7.14 — Undo / Redo. Snapshot stack of wf JSON serial.
+  // markDirty pushes after each mutation ; undo pops to previous,
+  // redo replays popped states. Bounded to MAX_HISTORY to keep
+  // memory linear in operator session length.
+  const MAX_HISTORY = 80;
+  let history = [];
+  let future  = [];
+  let applyingSnapshot = false;
+
+  function pushSnapshot() {
+    if (applyingSnapshot || !wf) return;
+    const snap = JSON.stringify(wf);
+    if (history.length > 0 && history[history.length - 1] === snap) return;
+    history.push(snap);
+    if (history.length > MAX_HISTORY) history.shift();
+    future = []; // any new action invalidates redo stack
+    updateUndoRedoButtons();
+  }
+
+  function applySnapshot(snap) {
+    applyingSnapshot = true;
+    wf = JSON.parse(snap);
+    // Re-derive any in-memory caches that lived alongside wf.
+    selected = null;
+    selectedStepIdx = -1;
+    if (typeof clearFocus === 'function') clearFocus();
+    render();
+    // markDirty pulses Save ; we DO want dirty to be true since the
+    // in-memory wf no longer matches the disk file.
+    dirty = true;
+    $save.classList.add('pulse');
+    applyingSnapshot = false;
+    updateUndoRedoButtons();
+  }
+
+  function undo() {
+    if (history.length < 2) {
+      setStatus('nothing to undo', 'error');
+      return;
+    }
+    future.push(history.pop());
+    applySnapshot(history[history.length - 1]);
+    setStatus(`undo (${history.length - 1} more · ${future.length} to redo)`, 'ok');
+  }
+
+  function redo() {
+    if (future.length === 0) {
+      setStatus('nothing to redo', 'error');
+      return;
+    }
+    const snap = future.pop();
+    history.push(snap);
+    applySnapshot(snap);
+    setStatus(`redo (${future.length} more · ${history.length - 1} to undo)`, 'ok');
+  }
+
+  function updateUndoRedoButtons() {
+    const $u = document.getElementById('undo');
+    const $r = document.getElementById('redo');
+    if ($u) $u.disabled = history.length < 2;
+    if ($r) $r.disabled = future.length === 0;
   }
 
   // ── layout helpers ──────────────────────────────────────────
@@ -1954,7 +2018,12 @@
       selected = null;
       $delete.disabled = true;
       markClean();
+      // Phase 5.7.14 — fresh load resets the undo / redo stacks.
+      // Initial wf is the bottom of the history (undo target floor).
+      history = [JSON.stringify(wf)];
+      future = [];
       render();
+      updateUndoRedoButtons();
       const n = Object.keys(wf.nodes).length;
       setStatus(`loaded · ${n} node${n === 1 ? '' : 's'}`, 'ok');
     } catch (e) {
@@ -1992,6 +2061,11 @@
   // ── wiring ──────────────────────────────────────────────────
   $save.addEventListener('click', save);
   $reload.addEventListener('click', load);
+  // Phase 5.7.14 — Undo / Redo toolbar buttons.
+  const $undo = document.getElementById('undo');
+  const $redo = document.getElementById('redo');
+  if ($undo) $undo.addEventListener('click', undo);
+  if ($redo) $redo.addEventListener('click', redo);
   $add.addEventListener('click', addNode);
 
   // Phase 5.7 polish — Re-layout : wipe the sticky _layout so
@@ -2534,6 +2608,24 @@
   window.addEventListener('keydown', ev => {
     if (ev.key === 'Escape' && document.body.classList.contains('focus-active')) {
       clearFocus();
+      return;
+    }
+    // Phase 5.7.14 — Ctrl+Z = undo, Ctrl+Y or Ctrl+Shift+Z = redo.
+    // Ignore when focus is in a text field — there the browser's
+    // native undo on the input is more useful.
+    const inText = ev.target && (
+      ev.target.tagName === 'INPUT' ||
+      ev.target.tagName === 'TEXTAREA' ||
+      ev.target.tagName === 'SELECT'
+    );
+    if (inText) return;
+    if ((ev.ctrlKey || ev.metaKey) && !ev.shiftKey && ev.key.toLowerCase() === 'z') {
+      ev.preventDefault();
+      undo();
+    } else if ((ev.ctrlKey || ev.metaKey) && (ev.key.toLowerCase() === 'y' ||
+                (ev.shiftKey && ev.key.toLowerCase() === 'z'))) {
+      ev.preventDefault();
+      redo();
     }
   });
 
