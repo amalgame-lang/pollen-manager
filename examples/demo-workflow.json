@@ -13,7 +13,11 @@
     "steps": [
       { "type": "call", "node": "ingest" },
       { "type": "call", "node": "enrich" },
-      { "type": "fan_out", "nodes": ["vip", "standard"] }
+      { "type": "if", "branches": [
+          { "cond": { "op": ">", "var": "data.amount", "value": 1000 },
+            "then": { "type": "call", "node": "vip" } },
+          { "then": { "type": "call", "node": "standard" } }
+      ] }
     ]
   },
   "_layout": {
