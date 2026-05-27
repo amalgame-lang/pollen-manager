@@ -1,0 +1,38 @@
+{
+  "schema": "workflow-tree/v1",
+  "name": "demo-pollen-full",
+  "version": 1,
+  "nodes": {
+    "ingest":   { "host": "127.0.0.1", "port": 8000, "consumes": ["order.in"],        "emits": ["order.enriched"] },
+    "enrich":   { "host": "127.0.0.1", "port": 8001, "consumes": ["order.enriched"],  "emits": ["order.routed"] },
+    "vip":      { "host": "127.0.0.1", "port": 8002, "consumes": ["order.routed"],    "emits": ["order.fulfilled"], "group": "premium" },
+    "standard": { "host": "127.0.0.1", "port": 8003, "consumes": ["order.routed"],    "emits": ["order.fulfilled"], "group": "standard" },
+    "audit":    { "host": "127.0.0.1", "port": 8004, "consumes": ["order.fulfilled"], "emits": ["order.done"],       "group": "security" },
+    "notify":   { "host": "127.0.0.1", "port": 8005, "consumes": ["order.done"] }
+  },
+  "tree": {
+    "type": "sequence",
+    "steps": [
+      { "type": "call", "node": "ingest" },
+      { "type": "set", "path": "state.received", "value": { "const": true } },
+      { "type": "call", "node": "enrich" },
+      { "type": "set", "path": "state.attempts",
+        "value": { "op": "+", "left": { "var": "state.attempts" }, "right": { "const": 1 } } },
+      { "type": "if", "branches": [
+          { "cond": { "op": ">", "var": "data.amount", "value": 1000 },
+            "then": { "type": "call", "node": "vip" } },
+          { "then": { "type": "call", "node": "standard" } }
+      ] },
+      { "type": "call", "node": "audit" },
+      { "type": "fan_out", "nodes": ["notify"] }
+    ]
+  },
+  "_layout": {
+    "ingest":   { "x": 120, "y": 120 },
+    "enrich":   { "x": 120, "y": 280 },
+    "vip":      { "x": 360, "y": 180 },
+    "standard": { "x": 360, "y": 380 },
+    "audit":    { "x": 600, "y": 280 },
+    "notify":   { "x": 840, "y": 280 }
+  }
+}
