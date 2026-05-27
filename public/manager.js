@@ -3622,7 +3622,19 @@
         chip.textContent = `${role}`;
         chip.title = `Click to set a condition · ${role}`;
       }
-      chip.addEventListener('click', () => openBpCondModal(role));
+      // Bind on pointerdown (not click) so browser extensions that
+      // hook document.click in capture phase + throw on disconnected
+      // ports can't swallow our handler — pointerdown fires earlier
+      // and on a different event channel.
+      const openCondFor = (e) => {
+        if (e) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+        openBpCondModal(role);
+      };
+      chip.addEventListener('pointerdown', openCondFor);
+      chip.addEventListener('click', openCondFor);   // belt + suspenders
       $bpList.appendChild(chip);
     }
   }
