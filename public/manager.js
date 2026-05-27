@@ -4121,13 +4121,51 @@
       '<h3>Actions</h3><div class="infra-actions-list">' + actHtml + '</div>';
   }
 
+  // Infra editor draft (same two-layer model as the workflow editor :
+  // localStorage draft survives reloads, explicit Save publishes).
+  const INFRA_DRAFT_KEY = 'pollen-infra-draft';
+  let infraDraftTimer = null;
+  function saveInfraDraft() {
+    if (infraDraftTimer) clearTimeout(infraDraftTimer);
+    infraDraftTimer = setTimeout(() => {
+      try { localStorage.setItem(INFRA_DRAFT_KEY,
+        JSON.stringify({ ts: Date.now(), text: document.getElementById('infra-json').value })); }
+      catch (e) { /* ignore */ }
+    }, 800);
+  }
+  function clearInfraDraft() {
+    try { localStorage.removeItem(INFRA_DRAFT_KEY); } catch (e) { /* ignore */ }
+  }
+
   async function loadInfra() {
     document.getElementById('infra-view').textContent = 'loading…';
     try {
       const [ri, rc] = await Promise.all([fetch('/api/infra'), fetch('/api/capabilities')]);
       infraDeclared = await ri.json();
       const caps = await rc.json();
-      document.getElementById('infra-json').value = JSON.stringify(infraDeclared, null, 2);
+      const serverText = JSON.stringify(infraDeclared, null, 2);
+      const ta = document.getElementById('infra-json');
+      ta.value = serverText;
+      // Draft : if an unsaved draft diverges from the server file,
+      // restore it into the textarea + flag it (non-destructive ;
+      // the overview still reflects the saved server version).
+      let raw = null;
+      try { raw = localStorage.getItem(INFRA_DRAFT_KEY); } catch (e) { /* ignore */ }
+      const st = document.getElementById('infra-edit-status');
+      if (raw) {
+        try {
+          const d = JSON.parse(raw);
+          if (d && typeof d.text === 'string' && d.text.trim() && d.text !== serverText) {
+            ta.value = d.text;
+            const age = Math.max(0, Math.round((Date.now() - (d.ts || 0)) / 1000));
+            st.className = 'infra-edit-status';
+            st.textContent = 'unsaved draft restored (' + age + 's ago) — Save to publish, or Reload to discard';
+          } else if (d && d.text === serverText) {
+            clearInfraDraft();
+            st.textContent = '';
+          }
+        } catch (e) { clearInfraDraft(); }
+      } else { st.textContent = ''; }
       renderInfraOverview(infraDeclared, caps, caps.now || Date.now());
     } catch (e) {
       document.getElementById('infra-view').innerHTML = '<p class="err">' + esc(e.message) + '</p>';
@@ -4151,9 +4189,13 @@
     try {
       const r = await fetch('/api/infra', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: txt });
       const j = await r.json();
-      if (j.ok) { st.className = 'infra-edit-status ok'; st.textContent = '✓ saved to ' + j.path; loadInfra(); }
+      if (j.ok) { st.className = 'infra-edit-status ok'; st.textContent = '✓ saved to ' + j.path; clearInfraDraft(); loadInfra(); }
       else { st.className = 'infra-edit-status err'; st.textContent = '⚠ ' + (j.error || 'save failed'); }
     } catch (e) { st.className = 'infra-edit-status err'; st.textContent = '⚠ ' + e.message; }
   });
+  (function () {
+    const ta = document.getElementById('infra-json');
+    if (ta) ta.addEventListener('input', saveInfraDraft);
+  })();
   bind(document.getElementById('infra-help-link'), () => { hide(document.getElementById('infra-modal')); openHelp('infrastructure'); });
 })();
