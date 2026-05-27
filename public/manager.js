@@ -4178,6 +4178,24 @@
     document.getElementById('infra-tab-view').classList.toggle('active', v);
     document.getElementById('infra-tab-edit').classList.toggle('active', !v);
   }
+  // Live refresh : while the Infra modal is open AND on the Overview
+  // tab, re-poll /api/capabilities + /api/infra every 4s + re-render
+  // the overview only (never touches the edit textarea / draft). Lets
+  // you watch handled / inFlight climb live as you inject. Self-guarded
+  // by visibility so it idles cheaply when the modal is closed.
+  async function refreshInfraOverviewOnly() {
+    const modal = document.getElementById('infra-modal');
+    if (!modal || modal.hidden) return;
+    if (document.getElementById('infra-edit').hidden === false) return; // editing
+    try {
+      const [ri, rc] = await Promise.all([fetch('/api/infra'), fetch('/api/capabilities')]);
+      const decl = await ri.json();
+      const caps = await rc.json();
+      renderInfraOverview(decl, caps, caps.now || Date.now());
+    } catch (e) { /* transient — keep last render */ }
+  }
+  setInterval(refreshInfraOverviewOnly, 4000);
+
   bind(document.getElementById('open-infra'), () => { show('infra-modal'); infraTab('view'); loadInfra(); });
   bind(document.getElementById('infra-tab-view'), () => infraTab('view'));
   bind(document.getElementById('infra-tab-edit'), () => infraTab('edit'));
