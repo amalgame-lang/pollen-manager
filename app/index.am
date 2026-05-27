@@ -34,7 +34,55 @@ public class Page {
             "<button id=\"bp-copy\" class=\"bp-copy\" title=\"Copy --debug-bp arg\">⎘</button>" +
             "<button id=\"bp-clear\" class=\"bp-clear\" title=\"Clear all breakpoints\">✕</button>" +
             "</div>" +
+            "<div class=\"header-tools\">" +
+            "<button id=\"open-infra\" class=\"hdr-btn\" title=\"Infrastructure : declared servers + actions, live node discovery\">🗺 Infra</button>" +
+            "<button id=\"open-settings\" class=\"hdr-btn\" title=\"Manager settings\">⚙ Settings</button>" +
+            "<button id=\"open-help\" class=\"hdr-btn\" title=\"Help\">? Help</button>" +
+            "</div>" +
             "</header>" +
+            // ── Settings modal (Feature 1) ──
+            "<div id=\"settings-modal\" class=\"overlay\" hidden>" +
+            "<div class=\"overlay-backdrop\"></div>" +
+            "<div class=\"overlay-card\">" +
+            "<div class=\"overlay-head\"><span class=\"overlay-title\">⚙ Settings</span>" +
+            "<button id=\"settings-close\" class=\"overlay-close\" title=\"Close (Esc)\">✕</button></div>" +
+            "<p class=\"overlay-sub\">Resolved at launch from the environment. Restart the manager to change a <code>launch</code>-scoped value.</p>" +
+            "<div id=\"settings-body\" class=\"settings-body\">loading…</div>" +
+            "<p class=\"overlay-hint\"><a href=\"#\" id=\"settings-help-link\">Manager overview →</a></p>" +
+            "</div></div>" +
+            // ── Help drawer (Feature 3) ──
+            "<div id=\"help-modal\" class=\"overlay\" hidden>" +
+            "<div class=\"overlay-backdrop\"></div>" +
+            "<div class=\"overlay-card overlay-wide\">" +
+            "<div class=\"overlay-head\"><span class=\"overlay-title\">? Help</span>" +
+            "<button id=\"help-close\" class=\"overlay-close\" title=\"Close (Esc)\">✕</button></div>" +
+            "<div class=\"help-layout\">" +
+            "<nav id=\"help-toc\" class=\"help-toc\"></nav>" +
+            "<article id=\"help-content\" class=\"help-content\">loading…</article>" +
+            "</div></div></div>" +
+            // ── Infra modal (Feature 2) ──
+            "<div id=\"infra-modal\" class=\"overlay\" hidden>" +
+            "<div class=\"overlay-backdrop\"></div>" +
+            "<div class=\"overlay-card overlay-wide\">" +
+            "<div class=\"overlay-head\"><span class=\"overlay-title\">🗺 Infrastructure &amp; discovery</span>" +
+            "<span id=\"infra-summary\" class=\"infra-summary\"></span>" +
+            "<button id=\"infra-close\" class=\"overlay-close\" title=\"Close (Esc)\">✕</button></div>" +
+            "<div class=\"infra-tabs\">" +
+            "<button id=\"infra-tab-view\" class=\"infra-tab active\">Overview</button>" +
+            "<button id=\"infra-tab-edit\" class=\"infra-tab\">Declared (edit)</button>" +
+            "</div>" +
+            "<div id=\"infra-view\" class=\"infra-view\">loading…</div>" +
+            "<div id=\"infra-edit\" class=\"infra-edit\" hidden>" +
+            "<label class=\"overlay-sub\" for=\"infra-json\">infrastructure.json — servers + action adapters. Saved next to workflow.json.</label>" +
+            "<textarea id=\"infra-json\" spellcheck=\"false\" rows=\"16\"></textarea>" +
+            "<div id=\"infra-edit-status\" class=\"infra-edit-status\"></div>" +
+            "<div class=\"overlay-actions\">" +
+            "<button id=\"infra-reload\">Reload</button>" +
+            "<span class=\"overlay-spacer\"></span>" +
+            "<button id=\"infra-save\" class=\"primary\">Save</button>" +
+            "</div></div>" +
+            "<p class=\"overlay-hint\"><a href=\"#\" id=\"infra-help-link\">Infrastructure &amp; discovery docs →</a></p>" +
+            "</div></div>" +
             // ── Debug bridge banner (Phase 4.5.3) ──
             // Hidden by default, shown when /api/debug/pauses
             // returns a non-empty list. Polished in 4.5.5.

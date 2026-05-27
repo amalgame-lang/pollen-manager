@@ -3832,3 +3832,257 @@
   document.body.dataset.mode = 'edit';
   load();
 })();
+
+// ════════════════════════════════════════════════════════════════
+// Settings / Help / Infra overlays (Phase 6/7 operator panels)
+// Self-contained IIFE : no dependency on the main editor closure.
+// ════════════════════════════════════════════════════════════════
+(function () {
+  'use strict';
+
+  // pointerdown + click bind (defeats extensions that hijack click).
+  function bind(el, fn) {
+    if (!el) return;
+    const w = (e) => { if (e) { e.preventDefault(); e.stopPropagation(); } fn(e); };
+    el.addEventListener('pointerdown', w);
+    el.addEventListener('click', w);
+  }
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  // ── Generic overlay open/close ────────────────────────────────
+  let openOverlay = null;
+  function show(id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.hidden = false;
+    openOverlay = el;
+  }
+  function hide(el) {
+    if (el) el.hidden = true;
+    if (el === openOverlay) openOverlay = null;
+  }
+  function wireOverlay(id, closeBtnId) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const bd = el.querySelector('.overlay-backdrop');
+    bind(bd, () => hide(el));
+    bind(document.getElementById(closeBtnId), () => hide(el));
+  }
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && openOverlay) { e.preventDefault(); hide(openOverlay); }
+  });
+
+  // ── Minimal Markdown renderer (headings / lists / tables / code /
+  //    inline code + bold + links). Enough for the bundled docs. ──
+  function mdToHtml(md) {
+    const lines = md.replace(/\r\n/g, '\n').split('\n');
+    const out = [];
+    let i = 0;
+    const inline = (t) => esc(t)
+      .replace(/`([^`]+)`/g, (m, c) => '<code>' + c + '</code>')
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    while (i < lines.length) {
+      let l = lines[i];
+      if (/^```/.test(l)) {
+        const buf = []; i++;
+        while (i < lines.length && !/^```/.test(lines[i])) { buf.push(lines[i]); i++; }
+        i++;
+        out.push('<pre><code>' + esc(buf.join('\n')) + '</code></pre>');
+        continue;
+      }
+      const h = l.match(/^(#{1,4})\s+(.*)$/);
+      if (h) { const n = h[1].length; out.push('<h' + n + '>' + inline(h[2]) + '</h' + n + '>'); i++; continue; }
+      if (/^\s*\|/.test(l) && i + 1 < lines.length && /^\s*\|[\s:|-]+\|?\s*$/.test(lines[i + 1])) {
+        const rows = [];
+        while (i < lines.length && /^\s*\|/.test(lines[i])) { rows.push(lines[i]); i++; }
+        const cells = (r) => r.replace(/^\s*\|/, '').replace(/\|\s*$/, '').split('|').map(c => c.trim());
+        const head = cells(rows[0]);
+        out.push('<table><thead><tr>' + head.map(c => '<th>' + inline(c) + '</th>').join('') + '</tr></thead><tbody>');
+        for (let r = 2; r < rows.length; r++) {
+          out.push('<tr>' + cells(rows[r]).map(c => '<td>' + inline(c) + '</td>').join('') + '</tr>');
+        }
+        out.push('</tbody></table>');
+        continue;
+      }
+      if (/^\s*[-*]\s+/.test(l)) {
+        out.push('<ul>');
+        while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) {
+          out.push('<li>' + inline(lines[i].replace(/^\s*[-*]\s+/, '')) + '</li>'); i++;
+        }
+        out.push('</ul>');
+        continue;
+      }
+      if (/^\s*$/.test(l)) { i++; continue; }
+      out.push('<p>' + inline(l) + '</p>'); i++;
+    }
+    return out.join('\n');
+  }
+
+  // ── Feature 1 : Settings ──────────────────────────────────────
+  wireOverlay('settings-modal', 'settings-close');
+  async function openSettings() {
+    show('settings-modal');
+    const body = document.getElementById('settings-body');
+    body.textContent = 'loading…';
+    try {
+      const r = await fetch('/api/config');
+      const cfg = await r.json();
+      const rows = (cfg.settings || []).map(s =>
+        '<tr><td class="k">' + esc(s.key) + '</td>' +
+        '<td class="v"><code>' + esc(s.value) + '</code></td>' +
+        '<td class="scope ' + esc(s.scope) + '">' + esc(s.scope) + '</td>' +
+        '<td class="h">' + esc(s.help) + '</td></tr>').join('');
+      body.innerHTML =
+        '<div class="settings-meta">' + esc(cfg.app) + ' · v' + esc(cfg.version) + '</div>' +
+        '<table class="settings-table"><thead><tr><th>Setting</th><th>Value</th><th>Scope</th><th></th></tr></thead>' +
+        '<tbody>' + rows + '</tbody></table>';
+    } catch (e) {
+      body.innerHTML = '<p class="err">failed to load config: ' + esc(e.message) + '</p>';
+    }
+  }
+  bind(document.getElementById('open-settings'), openSettings);
+  bind(document.getElementById('settings-help-link'), () => { hide(document.getElementById('settings-modal')); openHelp('overview'); });
+
+  // ── Feature 3 : Help drawer ───────────────────────────────────
+  wireOverlay('help-modal', 'help-close');
+  async function loadDoc(id) {
+    const content = document.getElementById('help-content');
+    content.textContent = 'loading…';
+    try {
+      const r = await fetch('/api/help?doc=' + encodeURIComponent(id));
+      if (!r.ok) { content.innerHTML = '<p class="err">doc not available.</p>'; return; }
+      const md = await r.text();
+      content.innerHTML = mdToHtml(md);
+      content.scrollTop = 0;
+      document.querySelectorAll('#help-toc .toc-item').forEach(b =>
+        b.classList.toggle('active', b.dataset.id === id));
+    } catch (e) {
+      content.innerHTML = '<p class="err">' + esc(e.message) + '</p>';
+    }
+  }
+  async function openHelp(initial) {
+    show('help-modal');
+    const toc = document.getElementById('help-toc');
+    try {
+      const r = await fetch('/api/help');
+      const j = await r.json();
+      toc.innerHTML = '';
+      (j.docs || []).forEach(d => {
+        const b = document.createElement('button');
+        b.className = 'toc-item' + (d.available ? '' : ' unavailable');
+        b.textContent = d.title;
+        b.dataset.id = d.id;
+        if (d.available) bind(b, () => loadDoc(d.id));
+        toc.appendChild(b);
+      });
+      const first = (j.docs || []).find(d => d.available);
+      loadDoc(initial || (first ? first.id : 'overview'));
+    } catch (e) {
+      toc.innerHTML = '<p class="err">' + esc(e.message) + '</p>';
+    }
+  }
+  bind(document.getElementById('open-help'), () => openHelp('overview'));
+
+  // ── Feature 2 : Infra + discovery ─────────────────────────────
+  wireOverlay('infra-modal', 'infra-close');
+  let infraDeclared = { servers: {}, actions: {} };
+
+  function renderInfraOverview(declared, caps, now) {
+    const servers = declared.servers || {};
+    const actions = declared.actions || {};
+    const alive = caps.capabilities || [];
+    // index alive by host:port for cross-reference
+    const aliveByAddr = {};
+    alive.forEach(c => { aliveByAddr[(c.host || '') + ':' + (c.port || '')] = c; });
+    const STALE_MS = 15000;
+
+    const sKeys = Object.keys(servers);
+    let declHtml = sKeys.length ? '' : '<p class="muted">No servers declared. Use the "Declared (edit)" tab to add some.</p>';
+    sKeys.forEach(label => {
+      const s = servers[label];
+      const addr = (s.host || '') + ':' + (s.port || '');
+      const live = aliveByAddr[addr];
+      const stale = live ? (now - (live.heartbeat || 0) > STALE_MS) : false;
+      const badge = !live ? '<span class="badge down">declared</span>'
+        : stale ? '<span class="badge stale">stale</span>'
+        : '<span class="badge alive">alive</span>';
+      declHtml += '<div class="infra-card">' +
+        '<div class="infra-card-head"><strong>' + esc(label) + '</strong> ' + badge +
+        '<span class="infra-addr">' + esc(addr) + '</span></div>' +
+        '<div class="infra-actions">' + (s.actions || []).map(a => '<span class="chip">' + esc(a) + '</span>').join('') + '</div>' +
+        (live && live.load ? '<div class="infra-load">inFlight: ' +
+          Object.values(live.load).reduce((n, l) => n + (l.inFlight || 0), 0) + '</div>' : '') +
+        '</div>';
+    });
+
+    // alive nodes NOT in the declared set (pure discovery)
+    let discHtml = '';
+    alive.forEach(c => {
+      const addr = (c.host || '') + ':' + (c.port || '');
+      const declaredHere = sKeys.some(k => ((servers[k].host || '') + ':' + (servers[k].port || '')) === addr);
+      if (declaredHere) return;
+      const stale = now - (c.heartbeat || 0) > STALE_MS;
+      discHtml += '<div class="infra-card">' +
+        '<div class="infra-card-head"><strong>' + esc(c.label || c.instanceId || addr) + '</strong> ' +
+        (stale ? '<span class="badge stale">stale</span>' : '<span class="badge alive">alive</span>') +
+        '<span class="infra-addr">' + esc(addr) + '</span></div>' +
+        '<div class="infra-actions">' + (c.actions || []).map(a => '<span class="chip">' + esc(a) + '</span>').join('') + '</div>' +
+        '</div>';
+    });
+
+    const actKeys = Object.keys(actions);
+    let actHtml = actKeys.length ? '' : '<p class="muted">No actions declared.</p>';
+    actKeys.forEach(id => {
+      const a = actions[id];
+      actHtml += '<div class="infra-action"><code>' + esc(id) + '</code> <span class="atype">' + esc(a.type || '?') + '</span></div>';
+    });
+
+    document.getElementById('infra-summary').textContent =
+      sKeys.length + ' declared · ' + alive.length + ' alive';
+
+    document.getElementById('infra-view').innerHTML =
+      '<h3>Servers</h3><div class="infra-grid">' + declHtml + '</div>' +
+      (discHtml ? '<h3>Discovered (undeclared)</h3><div class="infra-grid">' + discHtml + '</div>' : '') +
+      '<h3>Actions</h3><div class="infra-actions-list">' + actHtml + '</div>';
+  }
+
+  async function loadInfra() {
+    document.getElementById('infra-view').textContent = 'loading…';
+    try {
+      const [ri, rc] = await Promise.all([fetch('/api/infra'), fetch('/api/capabilities')]);
+      infraDeclared = await ri.json();
+      const caps = await rc.json();
+      document.getElementById('infra-json').value = JSON.stringify(infraDeclared, null, 2);
+      renderInfraOverview(infraDeclared, caps, caps.now || Date.now());
+    } catch (e) {
+      document.getElementById('infra-view').innerHTML = '<p class="err">' + esc(e.message) + '</p>';
+    }
+  }
+  function infraTab(which) {
+    const v = which === 'view';
+    document.getElementById('infra-view').hidden = !v;
+    document.getElementById('infra-edit').hidden = v;
+    document.getElementById('infra-tab-view').classList.toggle('active', v);
+    document.getElementById('infra-tab-edit').classList.toggle('active', !v);
+  }
+  bind(document.getElementById('open-infra'), () => { show('infra-modal'); infraTab('view'); loadInfra(); });
+  bind(document.getElementById('infra-tab-view'), () => infraTab('view'));
+  bind(document.getElementById('infra-tab-edit'), () => infraTab('edit'));
+  bind(document.getElementById('infra-reload'), loadInfra);
+  bind(document.getElementById('infra-save'), async () => {
+    const st = document.getElementById('infra-edit-status');
+    const txt = document.getElementById('infra-json').value;
+    try { JSON.parse(txt); } catch (e) { st.className = 'infra-edit-status err'; st.textContent = '⚠ invalid JSON: ' + e.message; return; }
+    try {
+      const r = await fetch('/api/infra', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: txt });
+      const j = await r.json();
+      if (j.ok) { st.className = 'infra-edit-status ok'; st.textContent = '✓ saved to ' + j.path; loadInfra(); }
+      else { st.className = 'infra-edit-status err'; st.textContent = '⚠ ' + (j.error || 'save failed'); }
+    } catch (e) { st.className = 'infra-edit-status err'; st.textContent = '⚠ ' + e.message; }
+  });
+  bind(document.getElementById('infra-help-link'), () => { hide(document.getElementById('infra-modal')); openHelp('infrastructure'); });
+})();

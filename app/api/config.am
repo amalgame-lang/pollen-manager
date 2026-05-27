@@ -1,0 +1,50 @@
+// app/api/config.am  →  GET /api/config  (JSON)
+//
+// Surfaces the manager's runtime configuration for the Settings
+// panel. All values are resolved from the environment at launch
+// (the manager is a single process ; these can't change at
+// runtime without a restart — the UI labels them as such).
+
+import Amalgame.Web
+
+public class Page {
+    public static HttpResponse GET(ctx: WebContext) {
+        var wf: string = Env_Get("WORKFLOW_PATH")
+        if (String_Length(wf) == 0) { wf = "/tmp/pollen-demo.json" }
+        var shared: string = Env_Get("SHARED_DIR")
+        if (String_Length(shared) == 0) { shared = "/tmp/pollen-shared" }
+        var dbgMgr: string = Env_Get("DEBUG_MANAGER")
+        if (String_Length(dbgMgr) == 0) { dbgMgr = "127.0.0.1:3001" }
+        var retain: string = Env_Get("EXEC_RETENTION_MIN")
+        if (String_Length(retain) == 0) { retain = "60" }
+
+        // Each entry : key, value, scope (launch|runtime), help.
+        let body: string = "{" +
+            "\"app\":\"pollen-manager\"," +
+            "\"version\":\"0.1.0-dev\"," +
+            "\"settings\":[" +
+            "{\"key\":\"WORKFLOW_PATH\",\"value\":\"" + wf + "\"," +
+              "\"scope\":\"launch\"," +
+              "\"help\":\"Path to the workflow.json the manager edits + serves. Set via the WORKFLOW_PATH env var ; restart to change.\"}," +
+            "{\"key\":\"SHARED_DIR\",\"value\":\"" + shared + "\"," +
+              "\"scope\":\"launch\"," +
+              "\"help\":\"Directory Pollen nodes write executions/ + state/ + capabilities/ into. The manager reads it for the Live + Discovery panels.\"}," +
+            "{\"key\":\"DEBUG_MANAGER\",\"value\":\"" + dbgMgr + "\"," +
+              "\"scope\":\"launch\"," +
+              "\"help\":\"host:port a paused node phones home to (this manager's :3001 debug bridge). Override when a node runs on another host.\"}," +
+            "{\"key\":\"EXEC_RETENTION_MIN\",\"value\":\"" + retain + "\"," +
+              "\"scope\":\"launch\"," +
+              "\"help\":\"How long (minutes) execution records are kept before Cleanup purges them.\"}," +
+            "{\"key\":\"HTTP_PORT\",\"value\":\"3000\"," +
+              "\"scope\":\"launch\"," +
+              "\"help\":\"Manager web UI port (fixed at :3000 in this build).\"}," +
+            "{\"key\":\"DEBUG_BRIDGE_PORT\",\"value\":\"3001\"," +
+              "\"scope\":\"launch\"," +
+              "\"help\":\"TCP port where paused nodes phone home (the :3001 DEBUG_PAUSE bridge).\"}" +
+            "]}"
+
+        return HttpResponse.New()
+            .Header("content-type", "application/json")
+            .Text(body)
+    }
+}
