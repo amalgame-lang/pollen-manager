@@ -57,10 +57,52 @@
     $status.className = kind || '';
   }
 
+  // ── Draft auto-save (localStorage) ──────────────────────────
+  // Debounced snapshot of the in-progress workflow so a browser
+  // reload / crash never loses edits. This is the DRAFT layer ;
+  // the explicit Save button is the PUBLISH gate that writes the
+  // workflow.json live nodes hot-reload. Never auto-publishes —
+  // pushing a half-edited tree to a running mesh would mis-route.
+  const WF_DRAFT_KEY = 'pollen-wf-draft';
+  let draftTimer = null;
+  const $restoreDraft = document.getElementById('restore-draft');
+  const $discardDraft = document.getElementById('discard-draft');
+
+  function saveDraftDebounced() {
+    if (draftTimer) clearTimeout(draftTimer);
+    draftTimer = setTimeout(() => {
+      try {
+        if (wf) localStorage.setItem(WF_DRAFT_KEY,
+          JSON.stringify({ ts: Date.now(), wf: wf }));
+      } catch (e) { /* quota — ignore */ }
+    }, 800);
+  }
+  function clearDraft() {
+    try { localStorage.removeItem(WF_DRAFT_KEY); } catch (e) { /* ignore */ }
+    if ($restoreDraft) $restoreDraft.hidden = true;
+    if ($discardDraft) $discardDraft.hidden = true;
+  }
+  // After a load(), surface a draft only if it differs from what the
+  // server just gave us (otherwise it's stale / already published).
+  function offerDraftIfDiverged(serverWf) {
+    let raw = null;
+    try { raw = localStorage.getItem(WF_DRAFT_KEY); } catch (e) { return; }
+    if (!raw) return;
+    let d = null;
+    try { d = JSON.parse(raw); } catch (e) { clearDraft(); return; }
+    if (!d || !d.wf) return;
+    if (JSON.stringify(d.wf) === JSON.stringify(serverWf)) { clearDraft(); return; }
+    const age = Math.max(0, Math.round((Date.now() - (d.ts || 0)) / 1000));
+    if ($restoreDraft) $restoreDraft.hidden = false;
+    if ($discardDraft) $discardDraft.hidden = false;
+    setStatus('unsaved draft found (' + age + 's ago) — Restore or Discard', 'error');
+  }
+
   function markDirty() {
     dirty = true;
     $save.classList.add('pulse');
     pushSnapshot();
+    saveDraftDebounced();
   }
 
   function markClean() {
@@ -2028,6 +2070,9 @@
       updateUndoRedoButtons();
       const n = Object.keys(wf.nodes).length;
       setStatus(`loaded · ${n} node${n === 1 ? '' : 's'}`, 'ok');
+      // Draft layer : if a localStorage draft diverges from what the
+      // server just served, offer to restore it (non-destructive).
+      offerDraftIfDiverged(wf);
     } catch (e) {
       setStatus('load error: ' + e.message, 'error');
     }
@@ -2054,6 +2099,7 @@
         return;
       }
       markClean();
+      clearDraft();  // published → the draft is now redundant
       setStatus(`saved · ${reply.bytes} bytes → ${reply.path}`, 'ok');
     } catch (e) {
       setStatus('save error: ' + e.message, 'error');
@@ -2063,6 +2109,31 @@
   // ── wiring ──────────────────────────────────────────────────
   $save.addEventListener('click', save);
   $reload.addEventListener('click', load);
+  if ($restoreDraft) $restoreDraft.addEventListener('click', () => {
+    let raw = null;
+    try { raw = localStorage.getItem(WF_DRAFT_KEY); } catch (e) { return; }
+    if (!raw) return;
+    try {
+      const d = JSON.parse(raw);
+      if (!d || !d.wf) return;
+      wf = d.wf;
+      if (!wf.nodes) wf.nodes = {};
+      if (Array.isArray(wf.nodes)) wf.nodes = nodesArrayToObject(wf.nodes);
+      selected = null;
+      history = [JSON.stringify(wf)];
+      future = [];
+      render();
+      updateUndoRedoButtons();
+      markDirty();  // restored draft is unsaved vs server
+      $restoreDraft.hidden = true;
+      $discardDraft.hidden = true;
+      setStatus('draft restored — review + Save to publish', 'ok');
+    } catch (e) { setStatus('draft restore failed: ' + e.message, 'error'); }
+  });
+  if ($discardDraft) $discardDraft.addEventListener('click', () => {
+    clearDraft();
+    setStatus('draft discarded — showing the saved version', 'ok');
+  });
   // Phase 5.7.14 — Undo / Redo toolbar buttons.
   const $undo = document.getElementById('undo');
   const $redo = document.getElementById('redo');
@@ -4014,8 +4085,8 @@
         '<div class="infra-card-head"><strong>' + esc(label) + '</strong> ' + badge +
         '<span class="infra-addr">' + esc(addr) + '</span></div>' +
         '<div class="infra-actions">' + (s.actions || []).map(a => '<span class="chip">' + esc(a) + '</span>').join('') + '</div>' +
-        (live && live.load ? '<div class="infra-load">inFlight: ' +
-          Object.values(live.load).reduce((n, l) => n + (l.inFlight || 0), 0) + '</div>' : '') +
+        (live && live.load ? '<div class="infra-load">inFlight ' +
+          (live.load.inFlight || 0) + ' · handled ' + (live.load.msgsHandled || 0) + '</div>' : '') +
         '</div>';
     });
 

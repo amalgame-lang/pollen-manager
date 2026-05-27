@@ -249,6 +249,8 @@ public class Page {
             "<div class=\"actions\">" +
             "<button id=\"save\">Save</button>" +
             "<button id=\"reload\">Reload</button>" +
+            "<button id=\"restore-draft\" class=\"draft-btn\" hidden title=\"Restore the unsaved draft kept in this browser\">↺ Restore draft</button>" +
+            "<button id=\"discard-draft\" class=\"draft-btn\" hidden title=\"Discard the unsaved draft\">✕ Discard draft</button>" +
             "<span id=\"status\"></span>" +
             "</div>" +
             "</aside>" +
