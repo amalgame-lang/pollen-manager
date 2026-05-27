@@ -94,14 +94,17 @@ Arithmetic ops `+ - * /` over numbers. A missing `var` reads as 0
 
 `amount=1500 → vip`, `amount=50 → standard`.
 
-## Reference-node caveats (M3.x)
+## Reference-node support (M5)
 
-The package reference node (`examples/pollen-node.am`) currently
-walks the **top-level sequence** and resolves `if` / `for` / `while`
-branch targets one level deep (the `then` / `do` must be a `call` /
-`fan_out`, or a sequence whose first dispatchable step is). Deeply
-nested trees (an `if` inside a `for` inside an `if` …) are not yet
-fully resolved — that's a planned extension. The legacy
-`pollen-node-tcp` binary handled more nesting but mis-evaluated
-`if` conditions (always took branch 0) ; the package fixes the
-evaluation.
+The package reference node (`examples/pollen-node.am`) resolves a
+role's routing **wherever it lives in the tree** — top-level
+sequence or nested inside an `if` branch's `then` / a `for` body
+(recursive `FindRoleSequence`). A role buried in a branch gets its
+next wired from its own containing sequence (e.g. `then: [call vip,
+call audit]` wires vip → audit). The `if` condition is evaluated
+correctly at dispatch (unlike the legacy `pollen-node-tcp` binary,
+which always took branch 0).
+
+Remaining edge : a role appearing in *multiple* places resolves to
+the first match in pre-order (genuinely ambiguous at runtime — the
+role doesn't know which branch it arrived from).
