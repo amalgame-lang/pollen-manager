@@ -3654,7 +3654,20 @@
     }
   }
 
-  $bpCopy.addEventListener('click', async () => {
+  // Pointerdown + click belt-and-suspenders for the bar-level
+  // buttons too — same extension-defense pattern as the modal +
+  // chip handlers.
+  const bindBpBar = (el, fn) => {
+    if (!el) return;
+    const wrap = (e) => {
+      if (e) { e.preventDefault(); e.stopPropagation(); }
+      fn();
+    };
+    el.addEventListener('pointerdown', wrap);
+    el.addEventListener('click', wrap);
+  };
+
+  bindBpBar($bpCopy, async () => {
     if (breakpoints.size === 0) return;
     const arg = `--debug-bp ${bpCsv()}`;
     try {
@@ -3665,7 +3678,7 @@
     }
   });
 
-  $bpClear.addEventListener('click', () => {
+  bindBpBar($bpClear, () => {
     if (breakpoints.size === 0) return;
     // Visual clear : walk every node group and drop the .has-bp class.
     for (const [name, entry] of nodeIndex.entries()) {
