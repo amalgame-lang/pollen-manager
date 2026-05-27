@@ -114,7 +114,13 @@ public class Page {
             "\"breakpoints\":" + bpsArr + "," +
             "\"hit_bp\":false}"
 
+        // rootMessageId = messageId : the manager is the originator,
+        // and downstream `set state.X` ops key on rootMessageId.
+        // (Matches Pollen.PublishDebug from amalgame-pollen v0.1.12 ;
+        // once the manager build links the package this hand-rolled
+        // envelope can be dropped for Pollen.PublishDebug.)
         let envelope: string = "{\"messageId\":\"" + mid + "\"," +
+            "\"rootMessageId\":\"" + mid + "\"," +
             "\"type\":\"MESSAGE\"," +
             "\"topic\":{\"uuid\":\"" + topic + "\",\"version\":" + String_FromInt(version) + "}," +
             "\"data\":" + dataJson + "," +
