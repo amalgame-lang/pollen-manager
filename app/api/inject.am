@@ -26,7 +26,7 @@
 
 import Amalgame.Web
 import Amalgame.Formats.Json
-import Amalgame.Net
+import Amalgame.Pollen
 import Amalgame.DateTime
 
 public class Page {
@@ -96,10 +96,7 @@ public class Page {
         var mode: string = "step"
         if (hasBp) { mode = "breakpoint" }
 
-        let mid:     string = Program.GenUuid()
         let session: string = Program.GenUuid()
-        let nowNs:   int = DateTime.NowNanos()
-        let nowMs:   int = nowNs / 1000000
 
         // Manager address for the debug callback. Defaults to
         // 127.0.0.1:3001 (where our debug bridge listens). Override
@@ -108,39 +105,21 @@ public class Page {
         var manager: string = Env_Get("DEBUG_MANAGER")
         if (String_Length(manager) == 0) { manager = "127.0.0.1:3001" }
 
-        let debugJson: string = "{\"session\":\"" + session + "\"," +
-            "\"mode\":\"" + mode + "\"," +
-            "\"manager\":\"" + manager + "\"," +
-            "\"breakpoints\":" + bpsArr + "," +
-            "\"hit_bp\":false}"
-
-        // rootMessageId = messageId : the manager is the originator,
-        // and downstream `set state.X` ops key on rootMessageId.
-        // (Matches Pollen.PublishDebug from amalgame-pollen v0.1.12 ;
-        // once the manager build links the package this hand-rolled
-        // envelope can be dropped for Pollen.PublishDebug.)
-        let envelope: string = "{\"messageId\":\"" + mid + "\"," +
-            "\"rootMessageId\":\"" + mid + "\"," +
-            "\"type\":\"MESSAGE\"," +
-            "\"topic\":{\"uuid\":\"" + topic + "\",\"version\":" + String_FromInt(version) + "}," +
-            "\"data\":" + dataJson + "," +
-            "\"timestamp\":" + String_FromInt(nowMs) + "," +
-            "\"debug\":" + debugJson + "}"
-
-        // TCP : connect → send line → drain one ACK line → close.
-        let cli = TcpClient_Connect(host, port)
-        if (!cli.Connected) {
+        // M4b — delegate envelope construction + send to the package.
+        // Pollen.PublishDebug mints the messageId (== rootMessageId),
+        // builds the {debug:{session,mode,manager,breakpoints,hit_bp}}
+        // field, connects, sends, drains the ACK, returns the mid (or
+        // "" on connect/send failure). One source of truth for the
+        // envelope shape, shared with the package's nodes.
+        let mid: string = Pollen.PublishDebug(host, port, topic, version,
+                                               dataJson, session, mode,
+                                               bpsArr, manager)
+        if (String_Length(mid) == 0) {
             return HttpResponse.New()
                 .Status(502)
                 .Header("content-type", "application/json")
                 .Text("{\"error\":\"connect failed to " + host + ":" + String_FromInt(port) + "\"}")
         }
-        TcpClient_Send(cli, envelope + "\n")
-        // The target node ACKs upstream BEFORE phoning home on
-        // a debug pause, so this recv returns quickly (~ms) and
-        // doesn't block the HTTP response.
-        let _ackBuf: string = TcpClient_Receive(cli, 4096)
-        TcpClient_Close(cli)
 
         return HttpResponse.New()
             .Header("content-type", "application/json")
