@@ -110,10 +110,14 @@ config, just the discovery mechanic + a sharedDir.
 
 ## Status
 
-- **This panel (manager side)** : declares + visualises. Editing
-  `infrastructure.json` + showing live capability files works today.
-- **Node side (writers, LB resolver, failover)** : Phase 6.1+ — the
-  reference node will grow a capability-writer thread so the
-  discovery panel shows real `alive` data. Until then the *declared*
-  half is fully usable and *alive* shows whatever has been written
-  to `capabilities/`.
+- **Manager side** : declares + visualises. Editing
+  `infrastructure.json` + the live discovery overview both work.
+- **Node side — capability writer** : ✅ shipped in
+  `amalgame-pollen` v0.1.13. `Pollen.StartCapabilityWriter(label,
+  host, port)` spawns a thread that rewrites the node's capability
+  file every 5s ; `examples/pollen-node` calls it when a shared dir
+  is set, so a package-driven mesh self-advertises and the *alive*
+  column populates with green/stale badges.
+- **Node side — LB resolver + failover** : Phase 6.3+ (power-of-two
+  choices on `inFlight`, TCP failover). Not yet built — routing
+  still targets explicit roles, not abstract actions.
