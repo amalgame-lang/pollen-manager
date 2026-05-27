@@ -22,9 +22,12 @@ nodes load it and route accordingly.
 }
 ```
 
-- **nodes** is an object keyed by role id (NOT an array). Each node
-  declares the topics it `consumes` and the topic it `emits` (first
-  entry is the forward topic).
+- **nodes** can be an object keyed by role id **or** an array of
+  `{ "id":…, "label":…, … }` entries (the form the manager's Save
+  writes). The reference node + the manager both accept either ;
+  in the array form the role is the `label` (falling back to `id`).
+  Each node declares the topics it `consumes` and the topic it
+  `emits` (first entry is the forward topic).
 - **tree** is the routing program. **_layout** is cosmetic (DAG
   positions), ignored by the runtime.
 
