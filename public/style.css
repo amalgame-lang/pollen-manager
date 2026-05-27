@@ -148,12 +148,41 @@ body[data-mode="watch"] #inspector-form input { color: var(--fg-muted); }
 }
 #bp-summary .bp-list {
   color: var(--fg);
-  max-width: 240px;
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-width: 360px;
+}
+/* Click-to-edit chips per BP (universal across browsers) — clicking
+ * a chip opens the condition modal for that role. */
+#bp-summary .bp-chip {
+  background: rgba(248, 113, 113, 0.12);
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  color: var(--fg);
+  font: 11px var(--font-mono);
+  padding: 2px 8px;
+  border-radius: 10px;
+  cursor: pointer;
+  line-height: 1.4;
+  max-width: 280px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-#bp-summary button {
+#bp-summary .bp-chip:hover {
+  background: rgba(248, 113, 113, 0.2);
+  border-color: rgba(248, 113, 113, 0.6);
+}
+#bp-summary .bp-chip.has-cond {
+  background: rgba(96, 165, 250, 0.14);
+  border-color: rgba(96, 165, 250, 0.45);
+}
+#bp-summary .bp-chip.has-cond:hover {
+  background: rgba(96, 165, 250, 0.24);
+  border-color: rgba(96, 165, 250, 0.7);
+}
+#bp-summary button#bp-copy,
+#bp-summary button#bp-clear {
   background: transparent;
   border: 1px solid transparent;
   color: var(--fg-muted);
@@ -161,8 +190,10 @@ body[data-mode="watch"] #inspector-form input { color: var(--fg-muted); }
   padding: 2px 6px;
   border-radius: 3px;
   line-height: 1;
+  cursor: pointer;
 }
-#bp-summary button:hover {
+#bp-summary button#bp-copy:hover,
+#bp-summary button#bp-clear:hover {
   background: var(--bg-2);
   border-color: var(--line-mid);
   color: var(--fg);

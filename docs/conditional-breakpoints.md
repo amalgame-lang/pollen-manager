@@ -10,20 +10,27 @@ you only care about a handful.
 ## Setting a condition
 
 1. Right-click the DAG node to toggle the breakpoint on (no
-   condition).
-2. **Alt + right-click** (or Shift + right-click on Chromium ;
-   Firefox routes shift+right-click to the native menu and
-   bypasses the page handler — use Alt to be safe across
-   browsers) the same node to open the *Breakpoint condition*
-   modal.
-3. Type an expression, press *Apply* (or `Ctrl+Enter`). The status
-   line below the textarea validates syntax live.
-4. Press *Cancel* / `Esc` to leave the existing condition untouched.
-   Press *Remove condition* to keep the breakpoint but drop its
-   condition (back to "always pause").
+   condition). A red "BP:" summary chip appears in the toolbar
+   for each role with a breakpoint set.
+2. **Click the chip** in the BP summary bar to open the
+   *Breakpoint condition* modal for that role. Universal across
+   browsers — no modifier-key juggling needed. Chips without a
+   condition are red ; chips with a condition turn blue and
+   show the condition text inline.
+3. Type an expression, press *Apply* (or `Ctrl+Enter`). The
+   status line below the textarea validates syntax live.
+4. Press *Cancel* / `Esc` to leave the existing condition
+   untouched. Press *Remove condition* to keep the breakpoint
+   but drop its condition (back to "always pause").
 
-The condition is stored client-side in `localStorage`, replayed into
-the next `--debug-bp` argument the *Inject* panel emits.
+*Power-user shortcut* : `Alt+RightClick` on a node opens the
+modal directly (skips the click-the-chip step). Works on
+Chromium ; Firefox routes shift+right-click to the native menu,
+but alt+right-click usually passes through. The click-the-chip
+flow is the reliable cross-browser path.
+
+The condition is stored client-side in `localStorage`, replayed
+into the next `--debug-bp` argument the *Inject* panel emits.
 
 ## How evaluation flows
 
@@ -150,11 +157,11 @@ envelope.topic.uuid == "user.signup.completed"
 
 | Shortcut       | Action                            |
 |----------------|-----------------------------------|
+| Click the BP chip          | **Open the cond modal (universal)** |
+| RightClick on node         | Toggle BP (no condition) |
+| Alt+RightClick on node     | Open the cond modal (browser-dependent shortcut) |
 | `Ctrl+Enter` (in textarea) | Apply                  |
 | `Esc`          | Cancel                            |
-| Alt+RightClick on node     | Open the cond modal (universal) |
-| Shift+RightClick on node   | Same (Chromium only ; Firefox bypasses) |
-| RightClick on node         | Toggle (no condition)  |
 
 ## Relationship to the workflow `if` evaluator
 
