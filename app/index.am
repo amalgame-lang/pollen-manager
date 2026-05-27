@@ -50,6 +50,18 @@ public class Page {
             "<button id=\"dbg-cancel\" class=\"danger\" title=\"Esc\">✕ Cancel</button>" +
             "</div>" +
             "</div>" +
+            "<div id=\"dbg-mutate-panel\" hidden>" +
+            "<label>Edit msg.data — operator sees the current value, types a new one, picks an apply mode :</label>" +
+            "<textarea id=\"dbg-mutate-data\" spellcheck=\"false\" rows=\"4\"></textarea>" +
+            "<div class=\"actions\">" +
+            "<button id=\"dbg-mutate-apply-continue\" class=\"primary\">▶ Apply &amp; Continue</button>" +
+            "<button id=\"dbg-mutate-apply-step\">⇩ Apply &amp; Step</button>" +
+            "</div>" +
+            "</div>" +
+            "</div>" +
+            // bp-cond-modal lives at top level (outside #debug-bar)
+            // so its `position: fixed` overlay isn't stuck inside a
+            // `[hidden]` ancestor when the debug bar is closed.
             "<div id=\"bp-cond-modal\" hidden>" +
             "<div class=\"bp-cond-backdrop\"></div>" +
             "<div class=\"bp-cond-card\">" +
@@ -83,15 +95,6 @@ public class Page {
             "<span class=\"bp-cond-spacer\"></span>" +
             "<button id=\"bp-cond-cancel\">Cancel</button>" +
             "<button id=\"bp-cond-apply\" class=\"primary\">Apply</button>" +
-            "</div>" +
-            "</div>" +
-            "</div>" +
-            "<div id=\"dbg-mutate-panel\" hidden>" +
-            "<label>Edit msg.data — operator sees the current value, types a new one, picks an apply mode :</label>" +
-            "<textarea id=\"dbg-mutate-data\" spellcheck=\"false\" rows=\"4\"></textarea>" +
-            "<div class=\"actions\">" +
-            "<button id=\"dbg-mutate-apply-continue\" class=\"primary\">▶ Apply &amp; Continue</button>" +
-            "<button id=\"dbg-mutate-apply-step\">⇩ Apply &amp; Step</button>" +
             "</div>" +
             "</div>" +
             "</div>" +
