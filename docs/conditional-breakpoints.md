@@ -11,8 +11,11 @@ you only care about a handful.
 
 1. Right-click the DAG node to toggle the breakpoint on (no
    condition).
-2. **Shift + right-click** the same node to open the *Breakpoint
-   condition* modal.
+2. **Alt + right-click** (or Shift + right-click on Chromium ;
+   Firefox routes shift+right-click to the native menu and
+   bypasses the page handler — use Alt to be safe across
+   browsers) the same node to open the *Breakpoint condition*
+   modal.
 3. Type an expression, press *Apply* (or `Ctrl+Enter`). The status
    line below the textarea validates syntax live.
 4. Press *Cancel* / `Esc` to leave the existing condition untouched.
@@ -149,7 +152,8 @@ envelope.topic.uuid == "user.signup.completed"
 |----------------|-----------------------------------|
 | `Ctrl+Enter` (in textarea) | Apply                  |
 | `Esc`          | Cancel                            |
-| Shift+RightClick on node   | Open the cond modal    |
+| Alt+RightClick on node     | Open the cond modal (universal) |
+| Shift+RightClick on node   | Same (Chromium only ; Firefox bypasses) |
 | RightClick on node         | Toggle (no condition)  |
 
 ## Relationship to the workflow `if` evaluator
