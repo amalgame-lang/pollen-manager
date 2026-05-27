@@ -3526,11 +3526,26 @@
                           && $bpCondClose && $bpCondBackdrop);
     if (bpCondModalReady) {
       $bpCondInput.addEventListener('input', validateBpCond);
-      $bpCondApply.addEventListener('click', applyBpCond);
-      $bpCondCancel.addEventListener('click', closeBpCondModal);
-      $bpCondClose.addEventListener('click', closeBpCondModal);
-      $bpCondBackdrop.addEventListener('click', closeBpCondModal);
-      if ($bpCondRemove) $bpCondRemove.addEventListener('click', removeBpCond);
+      // Bind on pointerdown (same defense as the chip handler) so
+      // extensions that hook document.click in capture phase + throw
+      // on disconnected ports can't swallow these. Keep click as a
+      // belt + suspenders for synthetic .click() calls. preventDefault
+      // on pointerdown also stops the input losing focus before the
+      // handler reads its value.
+      const bind = (el, fn) => {
+        if (!el) return;
+        const wrap = (e) => {
+          if (e) { e.preventDefault(); e.stopPropagation(); }
+          fn();
+        };
+        el.addEventListener('pointerdown', wrap);
+        el.addEventListener('click', wrap);
+      };
+      bind($bpCondApply,  applyBpCond);
+      bind($bpCondCancel, closeBpCondModal);
+      bind($bpCondClose,  closeBpCondModal);
+      bind($bpCondBackdrop, closeBpCondModal);
+      bind($bpCondRemove, removeBpCond);
       $bpCondInput.addEventListener('keydown', e => {
         if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
           e.preventDefault(); applyBpCond();
