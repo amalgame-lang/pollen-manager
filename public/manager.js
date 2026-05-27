@@ -3605,9 +3605,26 @@
       return;
     }
     $bpSummary.hidden = false;
-    const labels = [...breakpoints].map(([role, def]) =>
-      def && def.when ? `${role}[${def.when}]` : role);
-    $bpList.textContent = labels.join(' ');
+    // Each BP renders as a clickable chip — click opens the
+    // condition modal for that role. Universal across browsers
+    // (no right-click modifier hijinks).
+    $bpList.replaceChildren();
+    for (const [role, def] of breakpoints) {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'bp-chip';
+      const has_cond = !!(def && def.when);
+      if (has_cond) {
+        chip.classList.add('has-cond');
+        chip.textContent = `${role} : ${def.when}`;
+        chip.title = `Click to edit condition · ${role}`;
+      } else {
+        chip.textContent = `${role}`;
+        chip.title = `Click to set a condition · ${role}`;
+      }
+      chip.addEventListener('click', () => openBpCondModal(role));
+      $bpList.appendChild(chip);
+    }
   }
 
   $bpCopy.addEventListener('click', async () => {
