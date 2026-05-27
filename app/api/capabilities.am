@@ -1,0 +1,70 @@
+// app/api/capabilities.am  →  GET /api/capabilities
+//
+// The auto-discovery half of the infra view : lists the live
+// capability files Pollen nodes write under
+// <SHARED_DIR>/capabilities/<instanceId>.json (capability_lb
+// proposal, Phase 6). Each carries {instanceId, host, port, label,
+// actions[], load{}, system{}, heartbeat, version}.
+//
+// Staleness : the UI compares `heartbeat` (ms epoch) against now ;
+// a file not refreshed within ~15s is shown as dead. We surface
+// the raw records + a server-side `_now` so the client can mark
+// staleness without clock skew.
+//
+// Returns : { "now": <ms>, "capabilities": [ <record>, ... ] }
+// Empty array if no node has advertised yet (the dir may not exist).
+
+import Amalgame.Web
+import Amalgame.Collections
+import Amalgame.DateTime
+
+public class Page {
+    public static HttpResponse GET(ctx: WebContext) {
+        var shared: string = Env_Get("SHARED_DIR")
+        if (String_Length(shared) == 0) { shared = "/tmp/pollen-shared" }
+        let capDir: string = shared + "/capabilities"
+
+        let nowNs: int = DateTime.NowNanos()
+        let nowMs: int = nowNs / 1000000
+
+        if (!File_Exists(capDir)) {
+            return HttpResponse.New()
+                .Header("content-type", "application/json")
+                .Text("{\"now\":" + String_FromInt(nowMs) + ",\"capabilities\":[]}")
+        }
+
+        let listing = Process.RunCapture("ls -1t '" + capDir + "' 2>/dev/null")
+        let lines: List<string> = String_Split(listing.Stdout, "\n")
+
+        let parts: List<string> = new List<string>()
+        let n: int = lines.Count()
+        var emitted: int = 0
+        let cap: int = 200
+        for i in 0..n {
+            if (emitted >= cap) { break }
+            let name: string = lines.Get(i)
+            if (String_Length(name) == 0) { continue }
+            if (!String_EndsWith(name, ".json")) { continue }
+            let path: string = capDir + "/" + name
+            let body: string = File_ReadAll(path)
+            var trimmed: string = body
+            let blen: int = String_Length(trimmed)
+            if (blen > 0 && String_CharAt1(trimmed, blen - 1) == "\n") {
+                trimmed = String_Substring(trimmed, 0, blen - 1)
+            }
+            if (String_Length(trimmed) == 0) { continue }
+            if (emitted > 0) { parts.Add(",") }
+            parts.Add(trimmed)
+            emitted = emitted + 1
+        }
+
+        var inner: string = ""
+        if (parts.Count() > 0) { inner = String_Join(parts, "") }
+        let out: string = "{\"now\":" + String_FromInt(nowMs) +
+                          ",\"capabilities\":[" + inner + "]}"
+
+        return HttpResponse.New()
+            .Header("content-type", "application/json")
+            .Text(out)
+    }
+}

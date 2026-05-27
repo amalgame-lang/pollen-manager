@@ -1,0 +1,67 @@
+// app/api/help.am  →  GET /api/help          (list of docs, JSON)
+//                     GET /api/help?doc=<id>  (raw markdown of one doc)
+//
+// Serves the Markdown docs bundled with the manager so the in-app
+// Help drawer can render them. Doc ids are whitelisted (no path
+// traversal). Docs live under docs/ (override with HELP_DIR env).
+//
+// Note: per the mosaic routes convention (see workflow.am), helpers
+// can't be factored as static Page.X() — the generator renames the
+// class. So the doc whitelist is inlined in GET.
+
+import Amalgame.Web
+
+public class Page {
+    public static HttpResponse GET(ctx: WebContext) {
+        var dir: string = Env_Get("HELP_DIR")
+        if (String_Length(dir) == 0) { dir = "docs" }
+
+        var doc: string = ""
+        if (ctx.Query != null && ctx.Query.Has("doc")) {
+            doc = ctx.Query.Get("doc")
+        }
+        if (String_Length(doc) > 0) {
+            // id → filename whitelist (inlined)
+            var fname: string = ""
+            if (doc == "overview")              { fname = "MANAGER-HELP.md" }
+            if (doc == "conditional-breakpoints") { fname = "conditional-breakpoints.md" }
+            if (doc == "workflow-tree")         { fname = "workflow-tree.md" }
+            if (doc == "infrastructure")        { fname = "infrastructure.md" }
+            if (String_Length(fname) == 0) {
+                return HttpResponse.New().Status(404)
+                    .Header("content-type", "application/json")
+                    .Text("{\"error\":\"unknown doc id\"}")
+            }
+            let path: string = dir + "/" + fname
+            if (!File_Exists(path)) {
+                return HttpResponse.New().Status(404)
+                    .Header("content-type", "application/json")
+                    .Text("{\"error\":\"doc not found: " + path + "\"}")
+            }
+            let md: string = File_ReadAll(path)
+            return HttpResponse.New()
+                .Header("content-type", "text/markdown; charset=utf-8")
+                .Text(md)
+        }
+
+        // index → list of {id, title, available}. Fully inlined
+        // (no Page.X helper — the routes generator renames the class
+        // but not call sites, so intra-class static refs break).
+        var a1: string = "false"
+        if (File_Exists(dir + "/MANAGER-HELP.md")) { a1 = "true" }
+        var a2: string = "false"
+        if (File_Exists(dir + "/conditional-breakpoints.md")) { a2 = "true" }
+        var a3: string = "false"
+        if (File_Exists(dir + "/workflow-tree.md")) { a3 = "true" }
+        var a4: string = "false"
+        if (File_Exists(dir + "/infrastructure.md")) { a4 = "true" }
+        let inner: string = "" +
+            "{\"id\":\"overview\",\"title\":\"Manager overview\",\"available\":" + a1 + "}," +
+            "{\"id\":\"conditional-breakpoints\",\"title\":\"Conditional breakpoints\",\"available\":" + a2 + "}," +
+            "{\"id\":\"workflow-tree\",\"title\":\"Workflow tree (v2)\",\"available\":" + a3 + "}," +
+            "{\"id\":\"infrastructure\",\"title\":\"Infrastructure & discovery\",\"available\":" + a4 + "}"
+        return HttpResponse.New()
+            .Header("content-type", "application/json")
+            .Text("{\"docs\":[" + inner + "]}")
+    }
+}

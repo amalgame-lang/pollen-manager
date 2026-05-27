@@ -1,0 +1,71 @@
+// app/api/infra.am  →  GET /api/infra   (declared infrastructure.json)
+//                      PUT /api/infra   (save it)
+//
+// The DECLARATIVE half of discovery (the capability_lb proposal) :
+// the operator declares servers + actions up front. The auto-
+// discovery half (live nodes) is /api/capabilities. The UI shows
+// both : "N declared, M alive".
+//
+// infrastructure.json sits next to workflow.json (same dir),
+// named <workflow-dir>/infrastructure.json, override via
+// INFRA_PATH env. Schema (see docs/infrastructure.md) :
+//   { "servers": { "<label>": {host, port, actions[], capacity?} },
+//     "actions": { "<id>": {type, ...adapter fields} } }
+
+import Amalgame.Web
+import Amalgame.String
+
+public class Page {
+    public static HttpResponse GET(ctx: WebContext) {
+        // resolve infrastructure.json path (inlined — see help.am note)
+        var path: string = Env_Get("INFRA_PATH")
+        if (String_Length(path) == 0) {
+            var wf: string = Env_Get("WORKFLOW_PATH")
+            if (String_Length(wf) == 0) { wf = "/tmp/pollen-demo.json" }
+            let slash: int = String_LastIndexOf(wf, "/")
+            var dir: string = "."
+            if (slash > 0) { dir = String_Substring(wf, 0, slash) }
+            path = dir + "/infrastructure.json"
+        }
+        if (!File_Exists(path)) {
+            // empty skeleton so the UI always has something to render
+            return HttpResponse.New()
+                .Header("content-type", "application/json")
+                .Text("{\"servers\":{},\"actions\":{},\"_path\":\"" + path + "\",\"_exists\":false}")
+        }
+        let body: string = File_ReadAll(path)
+        // Splice in _path / _exists hints without a full re-parse :
+        // wrap is avoided — return the raw doc + a header instead.
+        return HttpResponse.New()
+            .Header("content-type", "application/json")
+            .Header("x-infra-path", path)
+            .Text(body)
+    }
+
+    public static HttpResponse PUT(ctx: WebContext) {
+        var path: string = Env_Get("INFRA_PATH")
+        if (String_Length(path) == 0) {
+            var wf: string = Env_Get("WORKFLOW_PATH")
+            if (String_Length(wf) == 0) { wf = "/tmp/pollen-demo.json" }
+            let slash: int = String_LastIndexOf(wf, "/")
+            var dir: string = "."
+            if (slash > 0) { dir = String_Substring(wf, 0, slash) }
+            path = dir + "/infrastructure.json"
+        }
+        let body: string = ctx.Body
+        if (String_Length(body) == 0) {
+            return HttpResponse.New().Status(400)
+                .Header("content-type", "application/json")
+                .Text("{\"error\":\"empty body\"}")
+        }
+        File_WriteAll(path, body)
+        if (!File_Exists(path)) {
+            return HttpResponse.New().Status(500)
+                .Header("content-type", "application/json")
+                .Text("{\"error\":\"write failed: " + path + "\"}")
+        }
+        return HttpResponse.New()
+            .Header("content-type", "application/json")
+            .Text("{\"ok\":true,\"path\":\"" + path + "\"}")
+    }
+}

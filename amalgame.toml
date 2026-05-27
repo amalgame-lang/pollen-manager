@@ -51,3 +51,7 @@ tag = "v0.1.0"
 [dependencies.web]
 git = "github.com/amalgame-lang/amalgame-web"
 tag = "v0.13.3"
+
+[dependencies.pollen]
+git = "github.com/amalgame-lang/amalgame-pollen"
+tag = "v0.1.12"

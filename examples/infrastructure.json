@@ -1,0 +1,26 @@
+{
+  "servers": {
+    "ingest": {
+      "host": "127.0.0.1", "port": 8000,
+      "actions": ["accept-order"], "capacity": 8
+    },
+    "enrich": {
+      "host": "127.0.0.1", "port": 8001,
+      "actions": ["enrich-order"], "capacity": 4
+    },
+    "vip": {
+      "host": "127.0.0.1", "port": 8002,
+      "actions": ["fulfil-vip"], "capacity": 2
+    },
+    "standard": {
+      "host": "127.0.0.1", "port": 8003,
+      "actions": ["fulfil-standard"], "capacity": 4
+    }
+  },
+  "actions": {
+    "accept-order":   { "type": "tcp",  "note": "entry point, validates the order envelope" },
+    "enrich-order":   { "type": "http", "method": "GET", "url": "https://api.acme.com/customers/{id}" },
+    "fulfil-vip":     { "type": "bash", "cmd": "fulfil --priority high --order {id}", "timeout_s": 60 },
+    "fulfil-standard":{ "type": "bash", "cmd": "fulfil --order {id}", "timeout_s": 120 }
+  }
+}
