@@ -1596,6 +1596,14 @@ li.tree-node.selected > .block-seq-root > .seq-step.selected > .block {
 .infra-action { font-size: 12px; }
 .infra-action code { font: 11px var(--font-mono); background: var(--bg-2); padding: 1px 5px; border-radius: 3px; }
 .atype { color: var(--fg-dim); font: 10px var(--font-mono); margin-left: 6px; }
+.lb-list { display: flex; flex-direction: column; gap: 8px; }
+.lb-group { border: 1px solid var(--line-mid); border-radius: var(--radius-sm); padding: 6px 8px; background: var(--bg-1); }
+.lb-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.lb-head code { font: 11px var(--font-mono); background: var(--bg-2); padding: 1px 5px; border-radius: 3px; }
+.lb-row { display: flex; align-items: center; gap: 8px; padding: 2px 0 2px 10px; border-left: 2px solid var(--line-mid); }
+.lb-inflight { font: 10px var(--font-mono); color: var(--fg-dim); }
+.lb-pick { font: 10px var(--font-mono); color: #6e6; }
+.lb-row .infra-addr { margin-left: 0; }
 .infra-edit textarea { width: 100%; font: 12px var(--font-mono); padding: 8px 10px; background: var(--bg-0);
   border: 1px solid var(--line-mid); border-radius: var(--radius-sm); color: var(--fg); outline: none; resize: vertical; }
 .infra-edit textarea:focus { border-color: var(--accent); }

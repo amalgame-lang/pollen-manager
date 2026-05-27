@@ -4112,12 +4112,51 @@
       actHtml += '<div class="infra-action"><code>' + esc(id) + '</code> <span class="atype">' + esc(a.type || '?') + '</span></div>';
     });
 
+    // ── Load balancing (live) ─────────────────────────────────────
+    // Group live (non-stale) providers by the topic/action they
+    // advertise. A topic served by >1 provider is load-balanced : the
+    // package picks one via power-of-two-choices (sample 2, lower
+    // inFlight wins). We show replicas sorted by inFlight and mark the
+    // lowest as the likely next pick (it wins any 2-way compare).
+    const liveProviders = alive.filter(c => now - (c.heartbeat || 0) <= STALE_MS);
+    const byAction = {};
+    liveProviders.forEach(c => {
+      (c.actions || []).forEach(act => {
+        (byAction[act] = byAction[act] || []).push(c);
+      });
+    });
+    const lbKeys = Object.keys(byAction).sort();
+    let balancedCount = 0;
+    let lbHtml = '';
+    lbKeys.forEach(act => {
+      const provs = byAction[act].slice().sort(
+        (a, b) => (((a.load && a.load.inFlight) || 0) - ((b.load && b.load.inFlight) || 0)));
+      const balanced = provs.length > 1;
+      if (balanced) balancedCount++;
+      const head = '<div class="lb-head"><code>' + esc(act) + '</code> ' +
+        (balanced ? '<span class="badge alive">×' + provs.length + ' balanced</span>'
+                  : '<span class="badge">single</span>') + '</div>';
+      const rows = provs.map((p, idx) => {
+        const addr = (p.host || '') + ':' + (p.port || '');
+        const inf = (p.load && p.load.inFlight) || 0;
+        const pick = (balanced && idx === 0)
+          ? ' <span class="lb-pick">← next pick (lowest inFlight)</span>' : '';
+        return '<div class="lb-row"><span class="infra-addr">' + esc(addr) + '</span>' +
+          '<span class="lb-inflight">inFlight ' + inf + '</span>' + pick + '</div>';
+      }).join('');
+      lbHtml += '<div class="lb-group">' + head + rows + '</div>';
+    });
+    if (!lbHtml) {
+      lbHtml = '<p class="muted">No live providers. Start nodes with --shared-dir to populate the registry; add --load-balance + run replicas of an action to balance.</p>';
+    }
+
     document.getElementById('infra-summary').textContent =
-      sKeys.length + ' declared · ' + alive.length + ' alive';
+      sKeys.length + ' declared · ' + alive.length + ' alive · ' + balancedCount + ' LB';
 
     document.getElementById('infra-view').innerHTML =
       '<h3>Servers</h3><div class="infra-grid">' + declHtml + '</div>' +
       (discHtml ? '<h3>Discovered (undeclared)</h3><div class="infra-grid">' + discHtml + '</div>' : '') +
+      '<h3>Load balancing (live)</h3><div class="lb-list">' + lbHtml + '</div>' +
       '<h3>Actions</h3><div class="infra-actions-list">' + actHtml + '</div>';
   }
 
