@@ -4139,10 +4139,11 @@
       const rows = provs.map((p, idx) => {
         const addr = (p.host || '') + ':' + (p.port || '');
         const inf = (p.load && p.load.inFlight) || 0;
+        const handled = (p.load && p.load.msgsHandled) || 0;
         const pick = (balanced && idx === 0)
           ? ' <span class="lb-pick">← next pick (lowest inFlight)</span>' : '';
         return '<div class="lb-row"><span class="infra-addr">' + esc(addr) + '</span>' +
-          '<span class="lb-inflight">inFlight ' + inf + '</span>' + pick + '</div>';
+          '<span class="lb-inflight">inFlight ' + inf + ' · handled ' + handled + '</span>' + pick + '</div>';
       }).join('');
       lbHtml += '<div class="lb-group">' + head + rows + '</div>';
     });
