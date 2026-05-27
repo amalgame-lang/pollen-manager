@@ -579,9 +579,11 @@
       g.addEventListener('mousedown', e => onNodeMouseDown(e, k));
       g.addEventListener('contextmenu', e => {
         e.preventDefault();
-        // shift+right-click → edit condition (set / change / clear)
-        // plain right-click  → toggle on/off
-        toggleBreakpoint(k, { editCondition: e.shiftKey });
+        // alt or shift + right-click → edit condition (set / change / clear)
+        // plain right-click          → toggle on/off
+        // (Firefox routes shift+right-click to the native menu and
+        // skips this handler entirely — alt is universal.)
+        toggleBreakpoint(k, { editCondition: e.altKey || e.shiftKey });
       });
       $svg.appendChild(g);
       const idx = nodeIndex.get(k);
