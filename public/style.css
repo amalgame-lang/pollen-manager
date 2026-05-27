@@ -1601,3 +1601,14 @@ li.tree-node.selected > .block-seq-root > .seq-step.selected > .block {
 .infra-edit textarea:focus { border-color: var(--accent); }
 .infra-edit-status { font: 11px var(--font-mono); min-height: 14px; color: var(--fg-muted); }
 .infra-edit-status.ok { color: #8b8; } .infra-edit-status.err { color: #e88; }
+
+/* ── Draft restore/discard buttons (auto-save) ──────────────── */
+.draft-btn[hidden] { display: none; }
+.draft-btn {
+  background: rgba(245, 180, 0, 0.14);
+  border: 1px solid rgba(245, 180, 0, 0.4);
+  color: var(--accent);
+  font: 11px var(--font-mono);
+  padding: 4px 10px; border-radius: var(--radius-sm); cursor: pointer;
+}
+.draft-btn:hover { background: rgba(245, 180, 0, 0.24); border-color: var(--accent); }
