@@ -699,17 +699,6 @@
         const cx = x + _BP + (m.w - 2 * _BP - im.w) / 2;
         placeBlock(inner, cx, y + _LHDR + _BP / 2);
       }
-      // Loop arc on the right side : from bottom-mid back to top-mid.
-      const arc = document.createElementNS(SVG_NS, 'path');
-      arc.setAttribute('class', 'b-loop-arc');
-      arc.setAttribute('fill', 'none');
-      const rt = x + m.w;
-      arc.setAttribute('d',
-        `M ${rt} ${y + m.h - _BP} ` +
-        `L ${rt + 18} ${y + m.h - _BP} ` +
-        `L ${rt + 18} ${y + _LHDR / 2} ` +
-        `L ${rt} ${y + _LHDR / 2}`);
-      $svg.appendChild(arc);
       return;
     }
     if (t === 'if') {
