@@ -1011,47 +1011,6 @@
     return b;
   }
 
-  // Mini toolbar to add steps into a single-action body (for.do,
-  // while.body, if.then). On first click, wraps the current action
-  // into a sequence containing it + the new step ; subsequent clicks
-  // (once the body IS a sequence) are handled by the nested
-  // buildSequence's own adder bars.
-  function makeWrapOrAddBar(parentRef, parentKey) {
-    const bar = document.createElement('div');
-    bar.className = 'seq-adders nested-wrap-adders';
-    function insert(tmpl) {
-      const current = parentRef[parentKey];
-      if (current && current.type === 'sequence') {
-        if (!Array.isArray(current.steps)) current.steps = [];
-        current.steps.push(tmpl);
-      } else {
-        // Discard an empty `call` placeholder ; otherwise keep the
-        // existing action as the first step of the new sequence.
-        const keep = current && !(current.type === 'call'
-                                   && !current.node && !current.action);
-        parentRef[parentKey] = {
-          type: 'sequence',
-          steps: keep ? [current, tmpl] : [tmpl]
-        };
-      }
-      markDirty(); render();
-    }
-    bar.appendChild(makeAddBtn('+ call', () =>
-      insert({ type: 'call', node: '' })));
-    bar.appendChild(makeAddBtn('+ if', () => insert({
-      type: 'if', branches: [
-        { cond: { op: '==', var: 'data.kind', value: 'vip' }, then: { type: 'fan_out', nodes: [] } },
-        { then: { type: 'fan_out', nodes: [] } }
-      ] })));
-    bar.appendChild(makeAddBtn('+ for', () => insert({
-      type: 'for', var: 'item', in: [], do: { type: 'call', node: '' } })));
-    bar.appendChild(makeAddBtn('+ while', () => insert({
-      type: 'while', cond: { op: '<', var: 'state.iter', value: 3 },
-      maxIter: 10, body: { type: 'call', node: '' } })));
-    bar.appendChild(makeAddBtn('+ set', () => insert({
-      type: 'set', path: 'state.example', value: { const: 0 } })));
-    return bar;
-  }
 
   // Phase 5.7.1 — recursive cond builder.
   // Leaf : 3 inline inputs (var | op | value) + wrap-with-AND/OR/NOT.
@@ -1576,10 +1535,13 @@
       const thenWrap = document.createElement('div');
       thenWrap.className = 'branch-then';
       if (!br.then) br.then = { type: 'fan_out', nodes: [] };
+      thenWrap.dataset.bodyKey = 'then';
+      thenWrap.classList.add('body-slot');
+      thenWrap.addEventListener('click', ev => {
+        ev.stopPropagation();
+        selectBodySlot(br, 'then', thenWrap);
+      });
       thenWrap.appendChild(buildAction(br.then, br, 'then'));
-      if (br.then.type !== 'sequence') {
-        thenWrap.appendChild(makeWrapOrAddBar(br, 'then'));
-      }
       branchDiv.appendChild(thenWrap);
 
       body.appendChild(branchDiv);
@@ -1677,13 +1639,15 @@
     doLabel.textContent = 'do';
     body.appendChild(doLabel);
     if (!step.do) step.do = { type: 'call', node: '' };
-    body.appendChild(buildAction(step.do, step, 'do'));
-    // Wrap-or-add toolbar so the body can grow beyond a single action.
-    // Hidden once step.do becomes a sequence — buildSequence renders
-    // its own adders inside the nested block.
-    if (step.do.type !== 'sequence') {
-      body.appendChild(makeWrapOrAddBar(step, 'do'));
-    }
+    const doSlot = document.createElement('div');
+    doSlot.className = 'body-slot';
+    doSlot.dataset.bodyKey = 'do';
+    doSlot.addEventListener('click', ev => {
+      ev.stopPropagation();
+      selectBodySlot(step, 'do', doSlot);
+    });
+    doSlot.appendChild(buildAction(step.do, step, 'do'));
+    body.appendChild(doSlot);
     block.appendChild(body);
 
     return block;
@@ -1729,10 +1693,15 @@
     bodyLabel.textContent = 'body';
     body.appendChild(bodyLabel);
     if (!step.body) step.body = { type: 'call', node: '' };
-    body.appendChild(buildAction(step.body, step, 'body'));
-    if (step.body.type !== 'sequence') {
-      body.appendChild(makeWrapOrAddBar(step, 'body'));
-    }
+    const bodySlot = document.createElement('div');
+    bodySlot.className = 'body-slot';
+    bodySlot.dataset.bodyKey = 'body';
+    bodySlot.addEventListener('click', ev => {
+      ev.stopPropagation();
+      selectBodySlot(step, 'body', bodySlot);
+    });
+    bodySlot.appendChild(buildAction(step.body, step, 'body'));
+    body.appendChild(bodySlot);
     block.appendChild(body);
 
     return block;
@@ -1858,6 +1827,14 @@
         slot.addEventListener('click', ev => {
           ev.stopPropagation();
           setSelectedStep(i);
+          clearNestedSelection();
+        });
+      } else {
+        // Nested-sequence step : click selects this position so the
+        // top toolbar inserts here, not at the root.
+        slot.addEventListener('click', ev => {
+          ev.stopPropagation();
+          selectNestedSeqStep(steps, i, slot);
         });
       }
       block.appendChild(slot);
@@ -2351,9 +2328,35 @@
   $apply.addEventListener('click', applyForm);
 
   // Phase 5.5c — selection + reorder/delete for top-level sequence
-  // steps. Nested edits (branches inside an `if`, body of `for`,
-  // etc) still go through Raw JSON for now.
+  // steps. The unified-selection extension (5.7.x) below adds nested
+  // selection : clicking a step inside a body slot (for.do, while.body,
+  // if-branch.then) or inside a nested sequence sets nestedSelection ;
+  // the top toolbar adders then insert there instead of at the root.
   let selectedStepIdx = -1;
+  // nestedSelection shape (discriminated union) :
+  //   { steps: <ref>, idx: <number> }                    — inside a sequence
+  //   { bodyParent: <stepObj>, bodyKey: 'do'|'body'|'then' } — solo body slot
+  let nestedSelection = null;
+
+  function clearNestedSelection() {
+    nestedSelection = null;
+    document.querySelectorAll('.selected-nested')
+      .forEach(el => el.classList.remove('selected-nested'));
+  }
+
+  function selectBodySlot(parent, key, domEl) {
+    clearNestedSelection();
+    setSelectedStep(-1);  // root selection mutually exclusive
+    nestedSelection = { bodyParent: parent, bodyKey: key };
+    if (domEl) domEl.classList.add('selected-nested');
+  }
+
+  function selectNestedSeqStep(stepsArray, idx, domEl) {
+    clearNestedSelection();
+    setSelectedStep(-1);
+    nestedSelection = { steps: stepsArray, idx: idx };
+    if (domEl) domEl.classList.add('selected-nested');
+  }
 
   function setSelectedStep(idx) {
     selectedStepIdx = idx;
@@ -2661,6 +2664,42 @@
     return (wf && wf.nodes) ? Object.keys(wf.nodes) : [];
   }
   function insertRootStep(tmpl, label) {
+    // Nested selection wins : insert into the body slot / nested
+    // sequence that the user last clicked, not the root sequence.
+    if (nestedSelection) {
+      if (nestedSelection.steps) {
+        const arr = nestedSelection.steps;
+        const at = Math.min(nestedSelection.idx + 1, arr.length);
+        arr.splice(at, 0, tmpl);
+        nestedSelection = { steps: arr, idx: at };
+        markDirty(); render();
+        if ($rawStatus) {
+          $rawStatus.textContent = `+ ${label} inserted inside (nested) — click Save to persist`;
+          $rawStatus.className = 'hint ok';
+        }
+        return;
+      }
+      if (nestedSelection.bodyParent && nestedSelection.bodyKey) {
+        const p = nestedSelection.bodyParent;
+        const k = nestedSelection.bodyKey;
+        const cur = p[k];
+        const isSeq = cur && cur.type === 'sequence' && Array.isArray(cur.steps);
+        if (isSeq) {
+          cur.steps.push(tmpl);
+          nestedSelection = { steps: cur.steps, idx: cur.steps.length - 1 };
+        } else {
+          const keep = cur && !(cur.type === 'call' && !cur.node && !cur.action);
+          p[k] = { type: 'sequence', steps: keep ? [cur, tmpl] : [tmpl] };
+          nestedSelection = { steps: p[k].steps, idx: p[k].steps.length - 1 };
+        }
+        markDirty(); render();
+        if ($rawStatus) {
+          $rawStatus.textContent = `+ ${label} inserted inside ${k} — click Save to persist`;
+          $rawStatus.className = 'hint ok';
+        }
+        return;
+      }
+    }
     const steps = ensureSequence();
     if (!steps) return;
     const sel = (selectedStepIdx >= 0 && selectedStepIdx < steps.length)
