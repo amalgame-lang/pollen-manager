@@ -1011,6 +1011,48 @@
     return b;
   }
 
+  // Mini toolbar to add steps into a single-action body (for.do,
+  // while.body, if.then). On first click, wraps the current action
+  // into a sequence containing it + the new step ; subsequent clicks
+  // (once the body IS a sequence) are handled by the nested
+  // buildSequence's own adder bars.
+  function makeWrapOrAddBar(parentRef, parentKey) {
+    const bar = document.createElement('div');
+    bar.className = 'seq-adders nested-wrap-adders';
+    function insert(tmpl) {
+      const current = parentRef[parentKey];
+      if (current && current.type === 'sequence') {
+        if (!Array.isArray(current.steps)) current.steps = [];
+        current.steps.push(tmpl);
+      } else {
+        // Discard an empty `call` placeholder ; otherwise keep the
+        // existing action as the first step of the new sequence.
+        const keep = current && !(current.type === 'call'
+                                   && !current.node && !current.action);
+        parentRef[parentKey] = {
+          type: 'sequence',
+          steps: keep ? [current, tmpl] : [tmpl]
+        };
+      }
+      markDirty(); render();
+    }
+    bar.appendChild(makeAddBtn('+ call', () =>
+      insert({ type: 'call', node: '' })));
+    bar.appendChild(makeAddBtn('+ if', () => insert({
+      type: 'if', branches: [
+        { cond: { op: '==', var: 'data.kind', value: 'vip' }, then: { type: 'fan_out', nodes: [] } },
+        { then: { type: 'fan_out', nodes: [] } }
+      ] })));
+    bar.appendChild(makeAddBtn('+ for', () => insert({
+      type: 'for', var: 'item', in: [], do: { type: 'call', node: '' } })));
+    bar.appendChild(makeAddBtn('+ while', () => insert({
+      type: 'while', cond: { op: '<', var: 'state.iter', value: 3 },
+      maxIter: 10, body: { type: 'call', node: '' } })));
+    bar.appendChild(makeAddBtn('+ set', () => insert({
+      type: 'set', path: 'state.example', value: { const: 0 } })));
+    return bar;
+  }
+
   // Phase 5.7.1 — recursive cond builder.
   // Leaf : 3 inline inputs (var | op | value) + wrap-with-AND/OR/NOT.
   // Composite : box labelled with op (AND / OR / NOT), each arg
@@ -1535,6 +1577,9 @@
       thenWrap.className = 'branch-then';
       if (!br.then) br.then = { type: 'fan_out', nodes: [] };
       thenWrap.appendChild(buildAction(br.then, br, 'then'));
+      if (br.then.type !== 'sequence') {
+        thenWrap.appendChild(makeWrapOrAddBar(br, 'then'));
+      }
       branchDiv.appendChild(thenWrap);
 
       body.appendChild(branchDiv);
@@ -1633,6 +1678,12 @@
     body.appendChild(doLabel);
     if (!step.do) step.do = { type: 'call', node: '' };
     body.appendChild(buildAction(step.do, step, 'do'));
+    // Wrap-or-add toolbar so the body can grow beyond a single action.
+    // Hidden once step.do becomes a sequence — buildSequence renders
+    // its own adders inside the nested block.
+    if (step.do.type !== 'sequence') {
+      body.appendChild(makeWrapOrAddBar(step, 'do'));
+    }
     block.appendChild(body);
 
     return block;
@@ -1679,6 +1730,9 @@
     body.appendChild(bodyLabel);
     if (!step.body) step.body = { type: 'call', node: '' };
     body.appendChild(buildAction(step.body, step, 'body'));
+    if (step.body.type !== 'sequence') {
+      body.appendChild(makeWrapOrAddBar(step, 'body'));
+    }
     block.appendChild(body);
 
     return block;
