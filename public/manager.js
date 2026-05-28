@@ -378,9 +378,9 @@
         // sequence like [call A, call B] gives controller → A → B →
         // controller). v1 implicit-self → small self-loop.
         if (step.body) {
-          const bodyEnd = walk(step.body, frontier, 'body');
+          const bodyEnd = walk(step.body, frontier, 'while');
           bodyEnd.forEach(end => frontier.forEach(f =>
-            emit(end, f, 'while', 'back')));
+            emit(end, f, 'while', 'while')));
         } else {
           frontier.forEach(f => emit(f, f, 'while', 'while'));
         }
