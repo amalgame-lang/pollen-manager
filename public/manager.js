@@ -683,6 +683,13 @@
           g.addEventListener('click', ev => {
             ev.stopPropagation();
             if (typeof select === 'function') select(name);
+            // Sync outline : highlight the matching step too.
+            const ctx = findCallContext(name);
+            if (ctx) {
+              if (ctx.kind === 'root') setSelectedStep(ctx.idx);
+              else if (ctx.kind === 'seq') selectNestedSeqStep(ctx.steps, ctx.idx, null);
+              else if (ctx.kind === 'body') selectBodySlot(ctx.parent, ctx.key, null);
+            }
           });
           g.addEventListener('contextmenu', ev => {
             ev.preventDefault();
@@ -696,19 +703,21 @@
     }
     if (t === 'sequence') {
       const steps = Array.isArray(step.steps) ? step.steps : [];
-      const sm = measureBlock(step);
       let cy = y;
+      // Left-align children for better readability — atomic blocks
+      // share a flush-left edge so the eye scans straight down.
       steps.forEach((s, i) => {
         const im = measureBlock(s);
-        const cx = x + (sm.w - im.w) / 2;
-        placeBlock(s, cx, cy);
+        placeBlock(s, x, cy);
         cy += im.h;
         if (i < steps.length - 1) {
           const ln = document.createElementNS(SVG_NS, 'line');
           ln.setAttribute('class', 'b-conn');
-          ln.setAttribute('x1', cx + im.w / 2);
+          // Connector lives near the centre of the atomic-block column.
+          const lx = x + _BW / 2;
+          ln.setAttribute('x1', lx);
           ln.setAttribute('y1', cy);
-          ln.setAttribute('x2', cx + im.w / 2);
+          ln.setAttribute('x2', lx);
           ln.setAttribute('y2', cy + _BG);
           $svg.appendChild(ln);
           cy += _BG;
@@ -735,8 +744,8 @@
         : `while ${_condSummary(step.cond)}  maxIter=${step.maxIter || '∞'}`;
       $svg.appendChild(hdr);
       if (inner) {
-        const cx = x + _BP + (m.w - 2 * _BP - im.w) / 2;
-        placeBlock(inner, cx, y + _LHDR + _BP / 2);
+        // Left-aligned inside the loop frame.
+        placeBlock(inner, x + _BP, y + _LHDR + _BP / 2);
       }
       return;
     }
@@ -2616,6 +2625,13 @@
     setSelectedStep(-1);  // root selection mutually exclusive
     nestedSelection = { bodyParent: parent, bodyKey: key };
     if (domEl) domEl.classList.add('selected-nested');
+    else reapplySelection();
+    // Sync DAG : if the slot's action is a call, light its block too.
+    const child = parent && parent[key];
+    if (child && child.type === 'call') {
+      const name = child.node || child.action;
+      if (name && typeof select === 'function' && selected !== name) select(name);
+    }
   }
 
   function selectNestedSeqStep(stepsArray, idx, domEl) {
@@ -2623,6 +2639,62 @@
     setSelectedStep(-1);
     nestedSelection = { steps: stepsArray, idx: idx };
     if (domEl) domEl.classList.add('selected-nested');
+    else reapplySelection();
+    const child = stepsArray && stepsArray[idx];
+    if (child && child.type === 'call') {
+      const name = child.node || child.action;
+      if (name && typeof select === 'function' && selected !== name) select(name);
+    }
+  }
+
+  // Locate the call step matching `name` anywhere in the tree.
+  // Returns one of :
+  //   { kind:'root', idx }                 — top-level sequence step
+  //   { kind:'seq',  steps, idx }          — nested sequence step
+  //   { kind:'body', parent, key }         — single-action body slot
+  //   null                                 — not found
+  // Used to drive the outline-side selection when the user clicks a
+  // block in the DAG ; first match wins for ambiguous trees.
+  function findCallContext(name) {
+    if (!wf || !wf.tree) return null;
+    function walk(node, rootIdxIfRoot) {
+      if (!node || typeof node !== 'object') return null;
+      if (node.type === 'sequence' && Array.isArray(node.steps)) {
+        for (let i = 0; i < node.steps.length; i++) {
+          const s = node.steps[i];
+          if (s && s.type === 'call' && (s.node === name || s.action === name)) {
+            return rootIdxIfRoot != null
+              ? { kind: 'root', idx: i }
+              : { kind: 'seq', steps: node.steps, idx: i };
+          }
+          const inner = walk(s, null);
+          if (inner) return inner;
+        }
+        return null;
+      }
+      if (node.type === 'while' || node.type === 'for') {
+        const innerStep = node.type === 'for' ? node.do : node.body;
+        if (innerStep && innerStep.type === 'call'
+            && (innerStep.node === name || innerStep.action === name)) {
+          return { kind: 'body', parent: node, key: node.type === 'for' ? 'do' : 'body' };
+        }
+        return walk(innerStep, null);
+      }
+      if (node.type === 'if' && Array.isArray(node.branches)) {
+        for (const b of node.branches) {
+          if (!b || !b.then) continue;
+          if (b.then.type === 'call'
+              && (b.then.node === name || b.then.action === name)) {
+            return { kind: 'body', parent: b, key: 'then' };
+          }
+          const inner = walk(b.then, null);
+          if (inner) return inner;
+        }
+        return null;
+      }
+      return null;
+    }
+    return walk(wf.tree, 1);  // 1 = treat top sequence as root
   }
 
   // Called at the end of render() to re-show the nested-selection
@@ -2656,6 +2728,16 @@
 
   function setSelectedStep(idx) {
     selectedStepIdx = idx;
+    // Sync DAG : if the root step is a call, highlight its block too.
+    if (idx >= 0 && wf && wf.tree && Array.isArray(wf.tree.steps)) {
+      const s = wf.tree.steps[idx];
+      if (s && s.type === 'call') {
+        const name = s.node || s.action;
+        if (name && typeof select === 'function' && selected !== name) {
+          select(name);
+        }
+      }
+    }
     const $up   = document.getElementById('tree-up');
     const $down = document.getElementById('tree-down');
     const $del  = document.getElementById('tree-delete');
