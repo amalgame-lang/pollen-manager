@@ -174,118 +174,123 @@
   }
 
   // ── layout helpers ──────────────────────────────────────────
-  // Curved edge path that avoids passing through other nodes.
-  // Self-loops use a small arc above the node ; regular edges use a
-  // cubic Bezier with vertical control-point offset that bends the
-  // curve AWAY from any obstacle node whose bounding box the straight
-  // segment would have crossed. Pure geometric, no animation.
+  // Where the edge leaves a node's bounding box, given the direction
+  // toward the other endpoint. The exit lands on whichever side
+  // (right/left/top/bottom) the line from the box center to (tx,ty)
+  // crosses first. Also returns the unit tangent perpendicular to
+  // that side, so the curve can leave the node going outward and
+  // arrive going inward — no more horizontal-only assumption.
+  function attachOnBox(cx, cy, hw, hh, tx, ty) {
+    const dx = tx - cx, dy = ty - cy;
+    if (dx === 0 && dy === 0) return { x: cx + hw, y: cy, nx: 1, ny: 0 };
+    const adx = Math.abs(dx), ady = Math.abs(dy);
+    const tH = adx ? hw / adx : Infinity;  // hits a vertical edge
+    const tV = ady ? hh / ady : Infinity;  // hits a horizontal edge
+    if (tH <= tV) {
+      const sx = Math.sign(dx);
+      return { x: cx + sx * hw, y: cy + dy * tH, nx: sx, ny: 0 };
+    }
+    const sy = Math.sign(dy);
+    return { x: cx + dx * tV, y: cy + sy * hh, nx: 0, ny: sy };
+  }
+
+  // Curved edge path that leaves perpendicular to each node's nearest
+  // side + bends to clear obstacle nodes. Self-loops use a small arc
+  // above the node. Always returns a cubic Bezier (or self-loop arc).
   function computeEdgePath(fromName, toName) {
     const a = wf._layout[fromName];
     const b = wf._layout[toName];
     if (!a || !b) return 'M 0 0';
     if (fromName === toName) {
-      // Self-loop : small arc above the node (unchanged from before).
       const ax = a.x + NODE_W / 4;
       const ay = a.y - NODE_H / 2;
       const bx = a.x - NODE_W / 4;
       const by = a.y - NODE_H / 2;
       return `M ${ax} ${ay} C ${ax + 30} ${ay - 50}, ${bx - 30} ${by - 50}, ${bx} ${by}`;
     }
-    const x1 = a.x + NODE_W / 2;
-    const y1 = a.y;
-    const x2 = b.x - NODE_W / 2;
-    const y2 = b.y;
+    const hw = NODE_W / 2, hh = NODE_H / 2;
+    const A = attachOnBox(a.x, a.y, hw, hh, b.x, b.y);
+    const B = attachOnBox(b.x, b.y, hw, hh, a.x, a.y);
 
-    // Walk the other nodes — if the straight segment between the two
-    // endpoints crosses any of their bounding boxes, bend the curve
-    // perpendicular (above or below, whichever clears it more cheaply)
-    // by enough to clear the box plus a margin.
-    const MARGIN = 24;
-    let bendY = 0;
+    // Obstacle detection : if the straight segment A→B crosses any
+    // OTHER node's bounding box, plan a perpendicular bend.
+    const MARGIN = 28;
+    let bendX = 0, bendY = 0;
     for (const [k, p] of Object.entries(wf._layout || {})) {
-      if (k === fromName || k === toName) continue;
-      if (!p) continue;
-      const left   = p.x - NODE_W / 2;
-      const right  = p.x + NODE_W / 2;
-      const top    = p.y - NODE_H / 2;
-      const bottom = p.y + NODE_H / 2;
-      // Cheap segment-vs-box test : the straight edge has y = y1 + t*(y2-y1)
-      // at x = x1 + t*(x2-x1). Sample t at the box's left and right
-      // edges (clamped) ; if either sample falls inside [top,bottom]
-      // AND the box's x-range overlaps the segment's x-range, we
-      // consider the segment to cross it.
-      const lo = Math.min(x1, x2), hi = Math.max(x1, x2);
-      if (right < lo || left > hi) continue;
-      const tForX = (x) => (x2 === x1) ? 0.5 : (x - x1) / (x2 - x1);
-      const tL = Math.max(0, Math.min(1, tForX(Math.max(left, lo))));
-      const tR = Math.max(0, Math.min(1, tForX(Math.min(right, hi))));
-      const yL = y1 + tL * (y2 - y1);
-      const yR = y1 + tR * (y2 - y1);
-      const segMinY = Math.min(yL, yR), segMaxY = Math.max(yL, yR);
-      if (segMaxY < top || segMinY > bottom) continue;
-      // Cross detected. Push the curve to the side that's farther from
-      // the obstacle's center y — that clears it with less travel.
-      const obstacleCy = p.y;
-      const baseY = (y1 + y2) / 2;
-      const dir = obstacleCy >= baseY ? -1 : 1;
-      const clearance = (NODE_H / 2 + MARGIN);
-      const candidate = dir * (Math.abs(obstacleCy - baseY) + clearance);
-      // Keep the strongest bend across all obstacles in the same
-      // direction (so we route ABOVE everything that's below, etc).
-      if (Math.abs(candidate) > Math.abs(bendY) || Math.sign(candidate) !== Math.sign(bendY || candidate)) {
-        bendY = candidate;
+      if (k === fromName || k === toName || !p) continue;
+      const left = p.x - hw, right = p.x + hw;
+      const top  = p.y - hh, bottom = p.y + hh;
+      // Parameterise the segment A→B by t in [0,1]. Sample at the
+      // points where x or y enter the box's range, clamp to [0,1],
+      // and check if the box is actually crossed.
+      const dx = B.x - A.x, dy = B.y - A.y;
+      if (dx === 0 && dy === 0) continue;
+      const tCandidates = [0, 1];
+      if (dx) {
+        tCandidates.push((left  - A.x) / dx);
+        tCandidates.push((right - A.x) / dx);
+      }
+      if (dy) {
+        tCandidates.push((top    - A.y) / dy);
+        tCandidates.push((bottom - A.y) / dy);
+      }
+      const clipped = tCandidates.filter(t => t > 0 && t < 1);
+      clipped.push(0.001, 0.999);  // ensure we have something
+      let inside = false;
+      for (const t of clipped) {
+        const x = A.x + t * dx, y = A.y + t * dy;
+        if (x >= left && x <= right && y >= top && y <= bottom) { inside = true; break; }
+      }
+      if (!inside) continue;
+      // Cross detected. Bend perpendicular to the segment direction.
+      const len = Math.hypot(dx, dy) || 1;
+      const px = -dy / len, py = dx / len;  // unit perpendicular
+      // Pick the perpendicular side farther from the obstacle's centre.
+      const baseX = (A.x + B.x) / 2, baseY = (A.y + B.y) / 2;
+      const toCx = p.x - baseX, toCy = p.y - baseY;
+      const dot = toCx * px + toCy * py;
+      const dir = dot >= 0 ? -1 : 1;
+      const clearance = Math.max(hw, hh) + MARGIN;
+      const distToCentre = Math.hypot(toCx, toCy);
+      const magnitude = dir * (distToCentre + clearance);
+      if (Math.abs(magnitude) > Math.hypot(bendX, bendY)) {
+        bendX = magnitude * px;
+        bendY = magnitude * py;
       }
     }
 
-    // Cubic Bezier : control points at 35% / 65% along x, lifted by
-    // bendY. Without obstacles, bendY = 0 and the curve still has a
-    // gentle S thanks to symmetric control points, which already looks
-    // nicer than a straight <line>.
-    const cx1 = x1 + (x2 - x1) * 0.35;
-    const cx2 = x1 + (x2 - x1) * 0.65;
-    const cy1 = y1 + bendY;
-    const cy2 = y2 + bendY;
-    return `M ${x1} ${y1} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${x2} ${y2}`;
+    // Control-point length proportional to straight distance, capped
+    // so very short edges still curve a bit. lc is how far each
+    // control point pushes outward along the local tangent.
+    const dist = Math.hypot(B.x - A.x, B.y - A.y);
+    const lc = Math.max(40, dist * 0.45);
+    const C1x = A.x + A.nx * lc + bendX;
+    const C1y = A.y + A.ny * lc + bendY;
+    const C2x = B.x + B.nx * lc + bendX;
+    const C2y = B.y + B.ny * lc + bendY;
+    return `M ${A.x} ${A.y} C ${C1x} ${C1y}, ${C2x} ${C2y}, ${B.x} ${B.y}`;
   }
 
-  // Approximate "midpoint" of an edge for the routing label : reuse
-  // computeEdgePath's geometry intent. For self-loops, the label
-  // floats above the arc. For regular edges, t=0.5 on the Bezier.
+  // Anchor for a routing label : the midpoint of the actual curved
+  // path (sample the live path's geometry rather than re-deriving it).
+  // For a cubic Bezier, t=0.5 gives (P0 + 3C1 + 3C2 + P3)/8.
   function edgeLabelAnchor(fromName, toName) {
     const a = wf._layout[fromName];
     const b = wf._layout[toName];
     if (!a || !b) return [0, 0];
     if (fromName === toName) return [a.x, a.y - NODE_H / 2 - 30];
-    // Same bendY logic as computeEdgePath, simplified : just sample
-    // the curve at t=0.5. With cubic B(t) = (1-t)^3 P0 + 3(1-t)^2 t C1
-    // + 3(1-t) t^2 C2 + t^3 P3, at t=0.5 that's (P0 + 3C1 + 3C2 + P3)/8.
-    const x1 = a.x + NODE_W / 2, y1 = a.y;
-    const x2 = b.x - NODE_W / 2, y2 = b.y;
-    // Re-run obstacle detection (cheap for the few nodes we typically have).
-    let bendY = 0;
-    const MARGIN = 24;
-    for (const [k, p] of Object.entries(wf._layout || {})) {
-      if (k === fromName || k === toName || !p) continue;
-      const left = p.x - NODE_W / 2, right = p.x + NODE_W / 2;
-      const top = p.y - NODE_H / 2, bottom = p.y + NODE_H / 2;
-      const lo = Math.min(x1, x2), hi = Math.max(x1, x2);
-      if (right < lo || left > hi) continue;
-      const tForX = (x) => (x2 === x1) ? 0.5 : (x - x1) / (x2 - x1);
-      const tL = Math.max(0, Math.min(1, tForX(Math.max(left, lo))));
-      const tR = Math.max(0, Math.min(1, tForX(Math.min(right, hi))));
-      const yL = y1 + tL * (y2 - y1);
-      const yR = y1 + tR * (y2 - y1);
-      const sMin = Math.min(yL, yR), sMax = Math.max(yL, yR);
-      if (sMax < top || sMin > bottom) continue;
-      const obstacleCy = p.y, baseY = (y1 + y2) / 2;
-      const dir = obstacleCy >= baseY ? -1 : 1;
-      const candidate = dir * (Math.abs(obstacleCy - baseY) + NODE_H / 2 + MARGIN);
-      if (Math.abs(candidate) > Math.abs(bendY)) bendY = candidate;
-    }
-    const cx1 = x1 + (x2 - x1) * 0.35, cx2 = x1 + (x2 - x1) * 0.65;
-    const cy1 = y1 + bendY, cy2 = y2 + bendY;
-    const mx = (x1 + 3 * cx1 + 3 * cx2 + x2) / 8;
-    const my = (y1 + 3 * cy1 + 3 * cy2 + y2) / 8 - 4;
+    // Re-derive the same control points as computeEdgePath. Cheap.
+    const hw = NODE_W / 2, hh = NODE_H / 2;
+    const A = attachOnBox(a.x, a.y, hw, hh, b.x, b.y);
+    const B = attachOnBox(b.x, b.y, hw, hh, a.x, a.y);
+    const dist = Math.hypot(B.x - A.x, B.y - A.y);
+    const lc = Math.max(40, dist * 0.45);
+    // Skip the obstacle bend here — the label tracks the unbent curve
+    // close enough, and recomputing on every move keeps it responsive.
+    const C1x = A.x + A.nx * lc, C1y = A.y + A.ny * lc;
+    const C2x = B.x + B.nx * lc, C2y = B.y + B.ny * lc;
+    const mx = (A.x + 3 * C1x + 3 * C2x + B.x) / 8;
+    const my = (A.y + 3 * C1y + 3 * C2y + B.y) / 8 - 4;
     return [mx, my];
   }
 
@@ -1842,17 +1847,15 @@
     const entry = nodeIndex.get(name);
     if (!entry || !entry.g) return;
     entry.g.setAttribute('transform', `translate(${x}, ${y})`);
-    // All edges are <path>s now (curved) ; recompute `d` from the
-    // current layout for any edge touching this node. computeEdgePath
-    // re-runs obstacle detection so the curve re-routes if it now
-    // crosses a node it didn't before (and vice versa).
-    for (const line of entry.edgesFrom) {
-      line.setAttribute('d', computeEdgePath(line.dataset.from, line.dataset.to));
-      updateEdgeLabel(line);
-    }
-    for (const line of entry.edgesTo) {
-      line.setAttribute('d', computeEdgePath(line.dataset.from, line.dataset.to));
-      updateEdgeLabel(line);
+    // Recompute ALL edges — not just the ones touching this node.
+    // An edge between two other nodes may need to re-route if THIS
+    // node has now moved over/off its path. Cheap enough for the
+    // dozen-edge workflows we typically see.
+    for (const [, ne] of nodeIndex) {
+      for (const line of ne.edgesFrom) {
+        line.setAttribute('d', computeEdgePath(line.dataset.from, line.dataset.to));
+        updateEdgeLabel(line);
+      }
     }
     if (entry.groupName) computeGroupHull(entry.groupName);
   }
