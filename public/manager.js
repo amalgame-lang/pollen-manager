@@ -174,6 +174,121 @@
   }
 
   // ── layout helpers ──────────────────────────────────────────
+  // Curved edge path that avoids passing through other nodes.
+  // Self-loops use a small arc above the node ; regular edges use a
+  // cubic Bezier with vertical control-point offset that bends the
+  // curve AWAY from any obstacle node whose bounding box the straight
+  // segment would have crossed. Pure geometric, no animation.
+  function computeEdgePath(fromName, toName) {
+    const a = wf._layout[fromName];
+    const b = wf._layout[toName];
+    if (!a || !b) return 'M 0 0';
+    if (fromName === toName) {
+      // Self-loop : small arc above the node (unchanged from before).
+      const ax = a.x + NODE_W / 4;
+      const ay = a.y - NODE_H / 2;
+      const bx = a.x - NODE_W / 4;
+      const by = a.y - NODE_H / 2;
+      return `M ${ax} ${ay} C ${ax + 30} ${ay - 50}, ${bx - 30} ${by - 50}, ${bx} ${by}`;
+    }
+    const x1 = a.x + NODE_W / 2;
+    const y1 = a.y;
+    const x2 = b.x - NODE_W / 2;
+    const y2 = b.y;
+
+    // Walk the other nodes — if the straight segment between the two
+    // endpoints crosses any of their bounding boxes, bend the curve
+    // perpendicular (above or below, whichever clears it more cheaply)
+    // by enough to clear the box plus a margin.
+    const MARGIN = 24;
+    let bendY = 0;
+    for (const [k, p] of Object.entries(wf._layout || {})) {
+      if (k === fromName || k === toName) continue;
+      if (!p) continue;
+      const left   = p.x - NODE_W / 2;
+      const right  = p.x + NODE_W / 2;
+      const top    = p.y - NODE_H / 2;
+      const bottom = p.y + NODE_H / 2;
+      // Cheap segment-vs-box test : the straight edge has y = y1 + t*(y2-y1)
+      // at x = x1 + t*(x2-x1). Sample t at the box's left and right
+      // edges (clamped) ; if either sample falls inside [top,bottom]
+      // AND the box's x-range overlaps the segment's x-range, we
+      // consider the segment to cross it.
+      const lo = Math.min(x1, x2), hi = Math.max(x1, x2);
+      if (right < lo || left > hi) continue;
+      const tForX = (x) => (x2 === x1) ? 0.5 : (x - x1) / (x2 - x1);
+      const tL = Math.max(0, Math.min(1, tForX(Math.max(left, lo))));
+      const tR = Math.max(0, Math.min(1, tForX(Math.min(right, hi))));
+      const yL = y1 + tL * (y2 - y1);
+      const yR = y1 + tR * (y2 - y1);
+      const segMinY = Math.min(yL, yR), segMaxY = Math.max(yL, yR);
+      if (segMaxY < top || segMinY > bottom) continue;
+      // Cross detected. Push the curve to the side that's farther from
+      // the obstacle's center y — that clears it with less travel.
+      const obstacleCy = p.y;
+      const baseY = (y1 + y2) / 2;
+      const dir = obstacleCy >= baseY ? -1 : 1;
+      const clearance = (NODE_H / 2 + MARGIN);
+      const candidate = dir * (Math.abs(obstacleCy - baseY) + clearance);
+      // Keep the strongest bend across all obstacles in the same
+      // direction (so we route ABOVE everything that's below, etc).
+      if (Math.abs(candidate) > Math.abs(bendY) || Math.sign(candidate) !== Math.sign(bendY || candidate)) {
+        bendY = candidate;
+      }
+    }
+
+    // Cubic Bezier : control points at 35% / 65% along x, lifted by
+    // bendY. Without obstacles, bendY = 0 and the curve still has a
+    // gentle S thanks to symmetric control points, which already looks
+    // nicer than a straight <line>.
+    const cx1 = x1 + (x2 - x1) * 0.35;
+    const cx2 = x1 + (x2 - x1) * 0.65;
+    const cy1 = y1 + bendY;
+    const cy2 = y2 + bendY;
+    return `M ${x1} ${y1} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${x2} ${y2}`;
+  }
+
+  // Approximate "midpoint" of an edge for the routing label : reuse
+  // computeEdgePath's geometry intent. For self-loops, the label
+  // floats above the arc. For regular edges, t=0.5 on the Bezier.
+  function edgeLabelAnchor(fromName, toName) {
+    const a = wf._layout[fromName];
+    const b = wf._layout[toName];
+    if (!a || !b) return [0, 0];
+    if (fromName === toName) return [a.x, a.y - NODE_H / 2 - 30];
+    // Same bendY logic as computeEdgePath, simplified : just sample
+    // the curve at t=0.5. With cubic B(t) = (1-t)^3 P0 + 3(1-t)^2 t C1
+    // + 3(1-t) t^2 C2 + t^3 P3, at t=0.5 that's (P0 + 3C1 + 3C2 + P3)/8.
+    const x1 = a.x + NODE_W / 2, y1 = a.y;
+    const x2 = b.x - NODE_W / 2, y2 = b.y;
+    // Re-run obstacle detection (cheap for the few nodes we typically have).
+    let bendY = 0;
+    const MARGIN = 24;
+    for (const [k, p] of Object.entries(wf._layout || {})) {
+      if (k === fromName || k === toName || !p) continue;
+      const left = p.x - NODE_W / 2, right = p.x + NODE_W / 2;
+      const top = p.y - NODE_H / 2, bottom = p.y + NODE_H / 2;
+      const lo = Math.min(x1, x2), hi = Math.max(x1, x2);
+      if (right < lo || left > hi) continue;
+      const tForX = (x) => (x2 === x1) ? 0.5 : (x - x1) / (x2 - x1);
+      const tL = Math.max(0, Math.min(1, tForX(Math.max(left, lo))));
+      const tR = Math.max(0, Math.min(1, tForX(Math.min(right, hi))));
+      const yL = y1 + tL * (y2 - y1);
+      const yR = y1 + tR * (y2 - y1);
+      const sMin = Math.min(yL, yR), sMax = Math.max(yL, yR);
+      if (sMax < top || sMin > bottom) continue;
+      const obstacleCy = p.y, baseY = (y1 + y2) / 2;
+      const dir = obstacleCy >= baseY ? -1 : 1;
+      const candidate = dir * (Math.abs(obstacleCy - baseY) + NODE_H / 2 + MARGIN);
+      if (Math.abs(candidate) > Math.abs(bendY)) bendY = candidate;
+    }
+    const cx1 = x1 + (x2 - x1) * 0.35, cx2 = x1 + (x2 - x1) * 0.65;
+    const cy1 = y1 + bendY, cy2 = y2 + bendY;
+    const mx = (x1 + 3 * cx1 + 3 * cx2 + x2) / 8;
+    const my = (y1 + 3 * cy1 + 3 * cy2 + y2) / 8 - 4;
+    return [mx, my];
+  }
+
   function ensureLayout() {
     if (!wf._layout) wf._layout = {};
     const fallback = topoLayout(wf);
@@ -490,31 +605,18 @@
       }
     }
 
-    // Edges first, so nodes draw on top.
+    // Edges first, so nodes draw on top. All edges are <path>s now
+    // (curved cubic Bezier) so they route gracefully + can detour
+    // around obstacle nodes. computeEdgePath() does the shaping.
     for (const e of edgeList) {
       const a = wf._layout[e.from];
       const b = wf._layout[e.to];
       if (!a || !b) continue;
-      const isSelfLoop = (e.from === e.to);
-      const line = document.createElementNS(SVG_NS, isSelfLoop ? 'path' : 'line');
+      const line = document.createElementNS(SVG_NS, 'path');
       const cssClass = 'edge edge-' + (e.kind || 'flow');
       line.setAttribute('class', cssClass);
-      if (isSelfLoop) {
-        // Small arc above the node : start at top-right, sweep up
-        // and around, land on top-left with an arrow.
-        const ax = a.x + NODE_W / 4;
-        const ay = a.y - NODE_H / 2;
-        const bx = a.x - NODE_W / 4;
-        const by = a.y - NODE_H / 2;
-        const c = `M ${ax} ${ay} C ${ax + 30} ${ay - 50}, ${bx - 30} ${by - 50}, ${bx} ${by}`;
-        line.setAttribute('d', c);
-        line.setAttribute('fill', 'none');
-      } else {
-        line.setAttribute('x1', a.x + NODE_W / 2);
-        line.setAttribute('y1', a.y);
-        line.setAttribute('x2', b.x - NODE_W / 2);
-        line.setAttribute('y2', b.y);
-      }
+      line.setAttribute('fill', 'none');
+      line.setAttribute('d', computeEdgePath(e.from, e.to));
       line.dataset.from = e.from;
       line.dataset.to = e.to;
       $svg.appendChild(line);
@@ -524,12 +626,7 @@
       // Label : draw a text element at the midpoint when the edge
       // carries routing context (if branch / for / while etc).
       if (e.label) {
-        const mx = isSelfLoop
-          ? a.x
-          : (a.x + NODE_W / 2 + b.x - NODE_W / 2) / 2;
-        const my = isSelfLoop
-          ? a.y - NODE_H / 2 - 30
-          : (a.y + b.y) / 2 - 4;
+        const [mx, my] = edgeLabelAnchor(e.from, e.to);
         const lbl = document.createElementNS(SVG_NS, 'text');
         lbl.setAttribute('class', 'edge-label edge-label-' + (e.kind || 'flow'));
         lbl.setAttribute('x', mx);
@@ -537,11 +634,7 @@
         lbl.setAttribute('text-anchor', 'middle');
         lbl.textContent = e.label;
         $svg.appendChild(lbl);
-        // Phase 5.7.5 — keep label glued to its line. moveNode
-        // walks edgesFrom/edgesTo and we need to update the label
-        // alongside the geometry, so we store it on the line.
         line._label = lbl;
-        line._isSelfLoop = isSelfLoop;
       }
     }
 
@@ -1749,41 +1842,31 @@
     const entry = nodeIndex.get(name);
     if (!entry || !entry.g) return;
     entry.g.setAttribute('transform', `translate(${x}, ${y})`);
+    // All edges are <path>s now (curved) ; recompute `d` from the
+    // current layout for any edge touching this node. computeEdgePath
+    // re-runs obstacle detection so the curve re-routes if it now
+    // crosses a node it didn't before (and vice versa).
     for (const line of entry.edgesFrom) {
-      line.setAttribute('x1', x + NODE_W / 2);
-      line.setAttribute('y1', y);
+      line.setAttribute('d', computeEdgePath(line.dataset.from, line.dataset.to));
       updateEdgeLabel(line);
     }
     for (const line of entry.edgesTo) {
-      line.setAttribute('x2', x - NODE_W / 2);
-      line.setAttribute('y2', y);
+      line.setAttribute('d', computeEdgePath(line.dataset.from, line.dataset.to));
       updateEdgeLabel(line);
     }
-    // Phase 5.7.6 — group hull follows the dragged node.
     if (entry.groupName) computeGroupHull(entry.groupName);
   }
 
-  // Phase 5.7.5 — reposition the label attached to a <line> /
-  // <path> edge after a node has been dragged. The label always
-  // sits at the line midpoint (regular edge) or above the source
-  // (self-loop), so we recompute from the current SVG coords.
+  // Reposition the routing label attached to an edge after a node
+  // has been dragged. Re-derives the anchor from the layout (the same
+  // way the curve does) so the label tracks the curve, not the
+  // straight-line midpoint.
   function updateEdgeLabel(line) {
     const lbl = line._label;
     if (!lbl) return;
-    if (line._isSelfLoop) {
-      const from = line.dataset.from;
-      const a = wf._layout[from];
-      if (!a) return;
-      lbl.setAttribute('x', a.x);
-      lbl.setAttribute('y', a.y - NODE_H / 2 - 30);
-    } else {
-      const x1 = Number(line.getAttribute('x1'));
-      const y1 = Number(line.getAttribute('y1'));
-      const x2 = Number(line.getAttribute('x2'));
-      const y2 = Number(line.getAttribute('y2'));
-      lbl.setAttribute('x', (x1 + x2) / 2);
-      lbl.setAttribute('y', (y1 + y2) / 2 - 4);
-    }
+    const [mx, my] = edgeLabelAnchor(line.dataset.from, line.dataset.to);
+    lbl.setAttribute('x', mx);
+    lbl.setAttribute('y', my);
   }
 
   // ── drag ────────────────────────────────────────────────────
