@@ -1667,6 +1667,20 @@
 
     if (deletable) head.appendChild(makeDeleteBtn(deletable));
     block.appendChild(head);
+
+    // v0.1.23 — explicit while.body. Mirror buildFor's `do` layout.
+    // The body action is what runs on each iteration ; it forwards
+    // back to the controller (this step's role) automatically.
+    const body = document.createElement('div');
+    body.className = 'block-body';
+    const bodyLabel = document.createElement('span');
+    bodyLabel.className = 'block-kw-sub';
+    bodyLabel.textContent = 'body';
+    body.appendChild(bodyLabel);
+    if (!step.body) step.body = { type: 'call', node: '' };
+    body.appendChild(buildAction(step.body, step, 'body'));
+    block.appendChild(body);
+
     return block;
   }
 
