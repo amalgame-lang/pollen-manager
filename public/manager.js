@@ -551,8 +551,247 @@
     return out;
   }
 
+  // ── structured-block DAG (refactor 2026-05-28) ────────────────
+  // while/for : containing frame (header + body inside + loop arc)
+  // if        : containing frame (header + branches side by side)
+  // sequence  : vertical stack of children with tiny connectors
+  // call/fan_out/set : atomic labelled boxes
+  // By construction, blocks contain blocks ; arrows never cross
+  // other blocks. Layout is bottom-up : children measure first,
+  // parents size to fit, then everything is placed top-down.
+  const _BW = 160, _BH = 38, _BP = 14, _BG = 16, _LHDR = 30, _BR = 24;
+
+  function _blockLabel(step) {
+    if (!step || typeof step !== 'object') return '?';
+    const t = step.type;
+    if (t === 'call')    return step.node || step.action || '(unset)';
+    if (t === 'fan_out') {
+      const a = Array.isArray(step.nodes) ? step.nodes
+              : Array.isArray(step.actions) ? step.actions : [];
+      return a.length ? `fan_out → ${a.length}` : 'fan_out';
+    }
+    if (t === 'set') return 'set ' + (step.path || 'state.?');
+    return t;
+  }
+
+  function _condSummary(cond) {
+    if (!cond || typeof cond !== 'object') return '';
+    if (cond.op && cond.var !== undefined) {
+      try { return `${cond.var}${cond.op}${JSON.stringify(cond.value)}`; }
+      catch (e) { return cond.op; }
+    }
+    return cond.op || '…';
+  }
+
+  function measureBlock(step) {
+    if (!step || typeof step !== 'object') return { w: 80, h: _BH };
+    const t = step.type;
+    if (t === 'call' || t === 'fan_out' || t === 'set') {
+      return { w: _BW, h: _BH };
+    }
+    if (t === 'sequence') {
+      const steps = Array.isArray(step.steps) ? step.steps : [];
+      if (steps.length === 0) return { w: _BW, h: _BH };
+      let mw = 0, th = 0;
+      steps.forEach((s, i) => {
+        const m = measureBlock(s);
+        if (m.w > mw) mw = m.w;
+        th += m.h;
+        if (i < steps.length - 1) th += _BG;
+      });
+      return { w: mw, h: th };
+    }
+    if (t === 'for' || t === 'while') {
+      const inner = t === 'for' ? step.do : step.body;
+      const im = inner ? measureBlock(inner) : { w: _BW, h: _BH };
+      return {
+        w: Math.max(im.w, _BW) + 2 * _BP,
+        h: _LHDR + im.h + 2 * _BP,
+      };
+    }
+    if (t === 'if') {
+      const branches = Array.isArray(step.branches) ? step.branches : [];
+      if (branches.length === 0) return { w: _BW, h: _LHDR + _BH };
+      let tw = 0, mh = 0;
+      branches.forEach((b, i) => {
+        const tm = b && b.then ? measureBlock(b.then) : { w: _BW, h: _BH };
+        tw += tm.w;
+        if (tm.h > mh) mh = tm.h;
+        if (i < branches.length - 1) tw += _BR;
+      });
+      return { w: tw + 2 * _BP, h: _LHDR + mh + 2 * _BP + 14 };
+    }
+    return { w: _BW, h: _BH };
+  }
+
+  function placeBlock(step, x, y) {
+    if (!step || typeof step !== 'object') return;
+    const t = step.type;
+    if (t === 'call' || t === 'fan_out' || t === 'set') {
+      const g = document.createElementNS(SVG_NS, 'g');
+      g.setAttribute('class', 'b-atomic b-' + t);
+      g.setAttribute('transform', `translate(${x}, ${y})`);
+      const r = document.createElementNS(SVG_NS, 'rect');
+      r.setAttribute('width', _BW); r.setAttribute('height', _BH);
+      r.setAttribute('rx', 6);
+      g.appendChild(r);
+      const tx = document.createElementNS(SVG_NS, 'text');
+      tx.setAttribute('x', _BW / 2);
+      tx.setAttribute('y', _BH / 2 + 4);
+      tx.setAttribute('text-anchor', 'middle');
+      tx.textContent = _blockLabel(step);
+      g.appendChild(tx);
+      $svg.appendChild(g);
+      // Wire call/fan_out blocks back into the inspector.
+      if (t === 'call') {
+        const name = step.node || step.action;
+        if (name) {
+          nodeIndex.set(name, { g, edgesFrom: [], edgesTo: [], groupName: null });
+          g.addEventListener('click', ev => {
+            ev.stopPropagation();
+            if (typeof select === 'function') select(name);
+          });
+        }
+      }
+      return;
+    }
+    if (t === 'sequence') {
+      const steps = Array.isArray(step.steps) ? step.steps : [];
+      const sm = measureBlock(step);
+      let cy = y;
+      steps.forEach((s, i) => {
+        const im = measureBlock(s);
+        const cx = x + (sm.w - im.w) / 2;
+        placeBlock(s, cx, cy);
+        cy += im.h;
+        if (i < steps.length - 1) {
+          const ln = document.createElementNS(SVG_NS, 'line');
+          ln.setAttribute('class', 'b-conn');
+          ln.setAttribute('x1', cx + im.w / 2);
+          ln.setAttribute('y1', cy);
+          ln.setAttribute('x2', cx + im.w / 2);
+          ln.setAttribute('y2', cy + _BG);
+          $svg.appendChild(ln);
+          cy += _BG;
+        }
+      });
+      return;
+    }
+    if (t === 'for' || t === 'while') {
+      const m = measureBlock(step);
+      const inner = t === 'for' ? step.do : step.body;
+      const im = inner ? measureBlock(inner) : { w: _BW, h: _BH };
+      const r = document.createElementNS(SVG_NS, 'rect');
+      r.setAttribute('class', 'b-loop-frame b-' + t);
+      r.setAttribute('x', x); r.setAttribute('y', y);
+      r.setAttribute('width', m.w); r.setAttribute('height', m.h);
+      r.setAttribute('rx', 10);
+      $svg.appendChild(r);
+      const hdr = document.createElementNS(SVG_NS, 'text');
+      hdr.setAttribute('class', 'b-loop-hdr');
+      hdr.setAttribute('x', x + _BP);
+      hdr.setAttribute('y', y + 20);
+      hdr.textContent = t === 'for'
+        ? `for ${step.var || 'item'} in [${(step.in || []).length}]`
+        : `while ${_condSummary(step.cond)}  maxIter=${step.maxIter || '∞'}`;
+      $svg.appendChild(hdr);
+      if (inner) {
+        const cx = x + _BP + (m.w - 2 * _BP - im.w) / 2;
+        placeBlock(inner, cx, y + _LHDR + _BP / 2);
+      }
+      // Loop arc on the right side : from bottom-mid back to top-mid.
+      const arc = document.createElementNS(SVG_NS, 'path');
+      arc.setAttribute('class', 'b-loop-arc');
+      arc.setAttribute('fill', 'none');
+      const rt = x + m.w;
+      arc.setAttribute('d',
+        `M ${rt} ${y + m.h - _BP} ` +
+        `L ${rt + 18} ${y + m.h - _BP} ` +
+        `L ${rt + 18} ${y + _LHDR / 2} ` +
+        `L ${rt} ${y + _LHDR / 2}`);
+      $svg.appendChild(arc);
+      return;
+    }
+    if (t === 'if') {
+      const m = measureBlock(step);
+      const branches = Array.isArray(step.branches) ? step.branches : [];
+      const r = document.createElementNS(SVG_NS, 'rect');
+      r.setAttribute('class', 'b-if-frame');
+      r.setAttribute('x', x); r.setAttribute('y', y);
+      r.setAttribute('width', m.w); r.setAttribute('height', m.h);
+      r.setAttribute('rx', 10);
+      $svg.appendChild(r);
+      const hdr = document.createElementNS(SVG_NS, 'text');
+      hdr.setAttribute('class', 'b-loop-hdr');
+      hdr.setAttribute('x', x + _BP);
+      hdr.setAttribute('y', y + 20);
+      hdr.textContent = 'if';
+      $svg.appendChild(hdr);
+      let cx = x + _BP;
+      branches.forEach((b, i) => {
+        const tm = b && b.then ? measureBlock(b.then) : { w: _BW, h: _BH };
+        const isElse = !(b && (b.cond !== undefined || b.op !== undefined));
+        const lblText = isElse ? 'else'
+                      : i === 0 ? 'when ' + _condSummary(b.cond)
+                                : 'elseif ' + _condSummary(b.cond);
+        const lbl = document.createElementNS(SVG_NS, 'text');
+        lbl.setAttribute('class', 'b-branch-label');
+        lbl.setAttribute('x', cx + tm.w / 2);
+        lbl.setAttribute('y', y + _LHDR + 8);
+        lbl.setAttribute('text-anchor', 'middle');
+        lbl.textContent = lblText;
+        $svg.appendChild(lbl);
+        if (b && b.then) {
+          placeBlock(b.then, cx, y + _LHDR + 16);
+        }
+        cx += tm.w + _BR;
+      });
+      return;
+    }
+    // unknown — small grey box
+    const g = document.createElementNS(SVG_NS, 'g');
+    g.setAttribute('class', 'b-unknown');
+    g.setAttribute('transform', `translate(${x}, ${y})`);
+    const r2 = document.createElementNS(SVG_NS, 'rect');
+    r2.setAttribute('width', _BW); r2.setAttribute('height', _BH);
+    r2.setAttribute('rx', 4);
+    g.appendChild(r2);
+    const tx2 = document.createElementNS(SVG_NS, 'text');
+    tx2.setAttribute('x', _BW / 2);
+    tx2.setAttribute('y', _BH / 2 + 4);
+    tx2.setAttribute('text-anchor', 'middle');
+    tx2.textContent = '? ' + (step.type || '');
+    g.appendChild(tx2);
+    $svg.appendChild(g);
+  }
+
+  function renderBlockDag() {
+    nodeIndex.clear();
+    $svg.innerHTML = '';
+    if (!wf || !wf.tree) return;
+    const m = measureBlock(wf.tree);
+    const ORIG_X = 40, ORIG_Y = 40;
+    placeBlock(wf.tree, ORIG_X, ORIG_Y);
+    const W = m.w + 2 * ORIG_X + 30;
+    const H = m.h + 2 * ORIG_Y;
+    $svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  }
+
   // ── render (full rebuild — call on data changes) ────────────
   function render() {
+    renderBlockDag();
+    refreshRaw();
+    syncInspector();
+    if (typeof refreshInjectTargets === 'function'
+        && $injectPanel && !$injectPanel.hidden) {
+      refreshInjectTargets();
+    }
+    renderTree();
+    reapplySelection();
+  }
+
+  // Legacy edge-and-nodes renderer — kept for reference / rollback.
+  function _legacyRender() {
     ensureLayout();
     nodeIndex.clear();
     $svg.innerHTML = '';
