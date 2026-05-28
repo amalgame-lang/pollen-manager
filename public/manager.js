@@ -690,7 +690,9 @@
           });
           g.addEventListener('click', ev => {
             ev.stopPropagation();
-            if (typeof select === 'function') select(name);
+            // Pass `g` so select() restricts the .selected class to THIS
+            // specific block, not every block sharing the same name.
+            if (typeof select === 'function') select(name, g);
             // Sync outline using THIS block's ctx (not a name search) :
             // many tree positions can share the same call action ; the
             // click identifies which one was actually targeted.
@@ -1553,6 +1555,8 @@
       valWidget.addEventListener('input', () => {
         leaf.value = strToVal(valWidget.value);
         markDirty();
+        // Refresh the DAG live (SVG, caret-safe).
+        if (typeof renderBlockDag === 'function') renderBlockDag();
       });
     }
 
@@ -2311,14 +2315,26 @@
       `g.b-atomic[data-node="${CSS.escape(name)}"]`));
   }
 
-  function select(name) {
-    if (selected === name) { syncInspector(); return; }
-    const prev = selected;
+  // Visual selection of ONE specific block (used by clicks) ; the
+  // name-based stuff (inspector, breakpoints) still goes through the
+  // `selected` name. clickedG, if provided, restricts the .selected
+  // class to that single DOM element. If omitted (e.g. selection
+  // driven from the outline), we fall back to "first block" so at
+  // least one is marked.
+  let selectedBlock = null;
+  function select(name, clickedG) {
+    const changed = selected !== name;
     selected = name;
     $delete.disabled = !name;
-    _dagBlocksFor(prev).forEach(g => g.classList.remove('selected'));
-    _dagBlocksFor(name).forEach(g => g.classList.add('selected'));
-    syncInspector();
+    if (selectedBlock) selectedBlock.classList.remove('selected');
+    selectedBlock = null;
+    if (name) {
+      const all = _dagBlocksFor(name);
+      selectedBlock = clickedG && all.indexOf(clickedG) >= 0 ? clickedG : all[0];
+      if (selectedBlock) selectedBlock.classList.add('selected');
+    }
+    if (changed) syncInspector();
+    else syncInspector();
   }
 
   // Phase 5.7.3 — chip-list editor inside the inspector. Replaces
