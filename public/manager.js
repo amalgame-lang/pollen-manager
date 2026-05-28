@@ -583,30 +583,7 @@
     return cond.op || '…';
   }
 
-  // In a sequence, a `call` step immediately followed by while/for/if
-  // is the *controller* of that construct (the role that holds the
-  // iter counter, evaluates the cond, decides where to forward). Pair
-  // them so the controller is rendered INSIDE the frame at the top —
-  // visually faithful to the runtime, where the loop iterates through
-  // that role, not "after" it.
-  function _pairSteps(steps) {
-    const units = [];
-    for (let i = 0; i < steps.length; i++) {
-      const s = steps[i];
-      if (!s || typeof s !== 'object') { units.push({ step: s }); continue; }
-      const next = i + 1 < steps.length ? steps[i + 1] : null;
-      if (s.type === 'call' && next && typeof next === 'object'
-          && (next.type === 'while' || next.type === 'for' || next.type === 'if')) {
-        units.push({ controller: s, control: next });
-        i++;  // skip the control step ; it's drawn by the controller's unit
-        continue;
-      }
-      units.push({ step: s });
-    }
-    return units;
-  }
-
-  function measureBlock(step, controller) {
+  function measureBlock(step) {
     if (!step || typeof step !== 'object') return { w: 80, h: _BH };
     const t = step.type;
     if (t === 'call' || t === 'fan_out' || t === 'set') {
@@ -615,27 +592,21 @@
     if (t === 'sequence') {
       const steps = Array.isArray(step.steps) ? step.steps : [];
       if (steps.length === 0) return { w: _BW, h: _BH };
-      const units = _pairSteps(steps);
       let mw = 0, th = 0;
-      units.forEach((u, i) => {
-        const m = u.control
-          ? measureBlock(u.control, u.controller)
-          : measureBlock(u.step);
+      steps.forEach((s, i) => {
+        const m = measureBlock(s);
         if (m.w > mw) mw = m.w;
         th += m.h;
-        if (i < units.length - 1) th += _BG;
+        if (i < steps.length - 1) th += _BG;
       });
       return { w: mw, h: th };
     }
     if (t === 'for' || t === 'while') {
       const inner = t === 'for' ? step.do : step.body;
       const im = inner ? measureBlock(inner) : { w: _BW, h: _BH };
-      const cm = controller ? measureBlock(controller) : null;
-      const contentW = Math.max(im.w, cm ? cm.w : 0, _BW);
-      const contentH = (cm ? cm.h + _BG : 0) + im.h;
       return {
-        w: contentW + 2 * _BP,
-        h: _LHDR + contentH + 2 * _BP,
+        w: Math.max(im.w, _BW) + 2 * _BP,
+        h: _LHDR + im.h + 2 * _BP,
       };
     }
     if (t === 'if') {
@@ -648,18 +619,12 @@
         if (tm.h > mh) mh = tm.h;
         if (i < branches.length - 1) tw += _BR;
       });
-      const cm = controller ? measureBlock(controller) : null;
-      const contentW = Math.max(tw, cm ? cm.w : 0);
-      const ctrlBlock = cm ? cm.h + _BG : 0;
-      return {
-        w: contentW + 2 * _BP,
-        h: _LHDR + ctrlBlock + mh + 2 * _BP + 14,
-      };
+      return { w: tw + 2 * _BP, h: _LHDR + mh + 2 * _BP + 14 };
     }
     return { w: _BW, h: _BH };
   }
 
-  function placeBlock(step, x, y, controller) {
+  function placeBlock(step, x, y) {
     if (!step || typeof step !== 'object') return;
     const t = step.type;
     if (t === 'call' || t === 'fan_out' || t === 'set') {
@@ -732,19 +697,13 @@
     if (t === 'sequence') {
       const steps = Array.isArray(step.steps) ? step.steps : [];
       const sm = measureBlock(step);
-      const units = _pairSteps(steps);
       let cy = y;
-      units.forEach((u, i) => {
-        const target = u.control || u.step;
-        const ctrl = u.controller;
-        const im = u.control
-          ? measureBlock(u.control, u.controller)
-          : measureBlock(u.step);
+      steps.forEach((s, i) => {
+        const im = measureBlock(s);
         const cx = x + (sm.w - im.w) / 2;
-        if (u.control) placeBlock(u.control, cx, cy, u.controller);
-        else placeBlock(u.step, cx, cy);
+        placeBlock(s, cx, cy);
         cy += im.h;
-        if (i < units.length - 1) {
+        if (i < steps.length - 1) {
           const ln = document.createElementNS(SVG_NS, 'line');
           ln.setAttribute('class', 'b-conn');
           ln.setAttribute('x1', cx + im.w / 2);
@@ -758,10 +717,9 @@
       return;
     }
     if (t === 'for' || t === 'while') {
-      const m = measureBlock(step, controller);
+      const m = measureBlock(step);
       const inner = t === 'for' ? step.do : step.body;
       const im = inner ? measureBlock(inner) : { w: _BW, h: _BH };
-      const cm = controller ? measureBlock(controller) : null;
       const r = document.createElementNS(SVG_NS, 'rect');
       r.setAttribute('class', 'b-loop-frame b-' + t);
       r.setAttribute('x', x); r.setAttribute('y', y);
@@ -776,33 +734,15 @@
         ? `for ${step.var || 'item'} in [${(step.in || []).length}]`
         : `while ${_condSummary(step.cond)}  maxIter=${step.maxIter || '∞'}`;
       $svg.appendChild(hdr);
-      let innerY = y + _LHDR + _BP / 2;
-      // Controller : the call right before this construct in the parent
-      // sequence. It's the role that holds the iter/cond and actually
-      // iterates ; placing it inside the frame matches the runtime.
-      if (controller) {
-        const ccx = x + _BP + (m.w - 2 * _BP - cm.w) / 2;
-        placeBlock(controller, ccx, innerY);
-        // Tiny down-connector to the body.
-        const ln = document.createElementNS(SVG_NS, 'line');
-        ln.setAttribute('class', 'b-conn');
-        ln.setAttribute('x1', ccx + cm.w / 2);
-        ln.setAttribute('y1', innerY + cm.h);
-        ln.setAttribute('x2', ccx + cm.w / 2);
-        ln.setAttribute('y2', innerY + cm.h + _BG);
-        $svg.appendChild(ln);
-        innerY += cm.h + _BG;
-      }
       if (inner) {
-        const icx = x + _BP + (m.w - 2 * _BP - im.w) / 2;
-        placeBlock(inner, icx, innerY);
+        const cx = x + _BP + (m.w - 2 * _BP - im.w) / 2;
+        placeBlock(inner, cx, y + _LHDR + _BP / 2);
       }
       return;
     }
     if (t === 'if') {
-      const m = measureBlock(step, controller);
+      const m = measureBlock(step);
       const branches = Array.isArray(step.branches) ? step.branches : [];
-      const cm = controller ? measureBlock(controller) : null;
       const r = document.createElementNS(SVG_NS, 'rect');
       r.setAttribute('class', 'b-if-frame');
       r.setAttribute('x', x); r.setAttribute('y', y);
@@ -815,22 +755,6 @@
       hdr.setAttribute('y', y + 20);
       hdr.textContent = 'if';
       $svg.appendChild(hdr);
-      let branchesY = y + _LHDR + 16;
-      // Controller : the call right before the if (the role that
-      // evaluates the cond and picks the branch).
-      if (controller) {
-        const ccx = x + _BP + (m.w - 2 * _BP - cm.w) / 2;
-        placeBlock(controller, ccx, y + _LHDR + _BP / 2);
-        const ln = document.createElementNS(SVG_NS, 'line');
-        ln.setAttribute('class', 'b-conn');
-        const cyEnd = y + _LHDR + _BP / 2 + cm.h;
-        ln.setAttribute('x1', ccx + cm.w / 2);
-        ln.setAttribute('y1', cyEnd);
-        ln.setAttribute('x2', ccx + cm.w / 2);
-        ln.setAttribute('y2', cyEnd + _BG);
-        $svg.appendChild(ln);
-        branchesY = cyEnd + _BG + 14;
-      }
       let cx = x + _BP;
       branches.forEach((b, i) => {
         const tm = b && b.then ? measureBlock(b.then) : { w: _BW, h: _BH };
@@ -841,12 +765,12 @@
         const lbl = document.createElementNS(SVG_NS, 'text');
         lbl.setAttribute('class', 'b-branch-label');
         lbl.setAttribute('x', cx + tm.w / 2);
-        lbl.setAttribute('y', branchesY - 8);
+        lbl.setAttribute('y', y + _LHDR + 8);
         lbl.setAttribute('text-anchor', 'middle');
         lbl.textContent = lblText;
         $svg.appendChild(lbl);
         if (b && b.then) {
-          placeBlock(b.then, cx, branchesY);
+          placeBlock(b.then, cx, y + _LHDR + 16);
         }
         cx += tm.w + _BR;
       });
