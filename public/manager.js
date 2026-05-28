@@ -328,18 +328,28 @@
         }
       }
     }
+    // Proper Kahn's topo : skip self-loops (a `while` step emits
+     // f → f, which would make a naïve rank-propagation never
+     // terminate), and decrement in-degree so each node enters the
+     // queue at most once. Nodes inside a cycle never reach in-deg 0
+     // and fall through to rank 0 below.
     const indeg = Object.fromEntries(keys.map(k => [k, 0]));
-    for (const e of edges) indeg[e.to]++;
+    const adj   = Object.fromEntries(keys.map(k => [k, []]));
+    for (const e of edges) {
+      if (e.from === e.to) continue;
+      if (!adj[e.from] || indeg[e.to] === undefined) continue;
+      adj[e.from].push(e.to);
+      indeg[e.to]++;
+    }
     const rank = {};
     const queue = keys.filter(k => indeg[k] === 0);
     queue.forEach(k => rank[k] = 0);
     while (queue.length) {
       const k = queue.shift();
-      for (const e of edges) {
-        if (e.from === k) {
-          const r = Math.max(rank[e.to] || 0, (rank[k] || 0) + 1);
-          if (r !== rank[e.to]) { rank[e.to] = r; queue.push(e.to); }
-        }
+      for (const tgt of adj[k]) {
+        rank[tgt] = Math.max(rank[tgt] || 0, (rank[k] || 0) + 1);
+        indeg[tgt]--;
+        if (indeg[tgt] === 0) queue.push(tgt);
       }
     }
     keys.forEach(k => { if (rank[k] === undefined) rank[k] = 0; });
