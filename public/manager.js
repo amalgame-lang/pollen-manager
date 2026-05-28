@@ -1263,12 +1263,14 @@
     input.addEventListener('input', () => {
       setter(input.value);
       markDirty();
-      // Status only — DAG topology may shift but we skip the
-      // structural re-render to keep the caret position.
+      // Refresh the DAG on every keystroke (SVG, doesn't kill the
+      // input's caret) ; skip the full render() because that
+      // rebuilds the outline + would blow away this input.
+      if (typeof renderBlockDag === 'function') renderBlockDag();
     });
     input.addEventListener('change', () => {
-      // On commit (blur, Enter): full re-render so the DAG canvas
-      // reflects renamed targets etc.
+      // On commit (blur, Enter): full re-render so renamed targets
+      // / refreshed inspector / inject panel all catch up.
       setter(input.value);
       markDirty();
       render();
