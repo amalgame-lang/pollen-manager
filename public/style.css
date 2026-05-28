@@ -1699,3 +1699,61 @@ li.tree-node.selected > .block-seq-root > .seq-step.selected > .block {
   fill: var(--fg-dim);
   font: 11px var(--font-mono);
 }
+
+/* Block selection / live flash / BP / paused — mirror the legacy
+ * .node-group states on the new structured-block model. */
+#dag .b-atomic.selected rect {
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  filter: drop-shadow(0 0 6px var(--accent-glow));
+}
+#dag .b-atomic.flash rect {
+  animation: b-flash 1200ms ease-out;
+}
+@keyframes b-flash {
+  0%   { fill: rgba(245, 180, 0, 0.55); }
+  100% { fill: rgba(245, 180, 0, 0.0);  }
+}
+#dag .b-atomic.paused rect {
+  fill: var(--bg-3);
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  animation: b-paused-pulse 1.6s ease-in-out infinite;
+}
+@keyframes b-paused-pulse {
+  0%, 100% { filter: drop-shadow(0 0 6px var(--accent)); }
+  50%      { filter: drop-shadow(0 0 14px var(--accent))
+                     drop-shadow(0 0 4px var(--accent-glow)); }
+}
+#dag .b-atomic.has-bp rect {
+  stroke: var(--error);
+  stroke-dasharray: 4 2;
+}
+#dag .b-atomic.has-bp.selected rect {
+  stroke: var(--accent);
+  stroke-dasharray: 4 2;
+}
+#dag .b-atomic .node-bp {
+  opacity: 0;
+  transition: opacity 120ms;
+  pointer-events: none;
+}
+#dag .b-atomic.has-bp .node-bp { opacity: 1; }
+#dag .b-atomic.has-bp-cond .bp-dot {
+  stroke: var(--fg);
+  stroke-width: 2;
+  fill: var(--bg-0);
+}
+#dag .b-atomic .node-badge { pointer-events: none; }
+#dag .b-atomic .badge-bg {
+  fill: var(--bg-2);
+  stroke: var(--line-mid);
+  stroke-width: 1;
+}
+#dag .b-atomic .badge-text {
+  fill: var(--fg-muted);
+  font: 9px var(--font-mono);
+  font-weight: 600;
+}
+/* Hide badge in Edit mode (counts only matter while watching). */
+body[data-mode="edit"] #dag .b-atomic .node-badge { display: none; }

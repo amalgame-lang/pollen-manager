@@ -642,14 +642,53 @@
       tx.textContent = _blockLabel(step);
       g.appendChild(tx);
       $svg.appendChild(g);
-      // Wire call/fan_out blocks back into the inspector.
+      // Wire call/fan_out blocks back into the inspector + debug.
       if (t === 'call') {
         const name = step.node || step.action;
         if (name) {
-          nodeIndex.set(name, { g, edgesFrom: [], edgesTo: [], groupName: null });
+          // Count badge (top-right) — updated live as executions arrive.
+          const badgeG = document.createElementNS(SVG_NS, 'g');
+          badgeG.setAttribute('class', 'node-badge');
+          const bx = _BW - 6, by = 6;
+          const bg = document.createElementNS(SVG_NS, 'circle');
+          bg.setAttribute('class', 'badge-bg');
+          bg.setAttribute('cx', bx); bg.setAttribute('cy', by); bg.setAttribute('r', 8);
+          const bt = document.createElementNS(SVG_NS, 'text');
+          bt.setAttribute('class', 'badge-text');
+          bt.setAttribute('x', bx); bt.setAttribute('y', by + 3);
+          bt.setAttribute('text-anchor', 'middle');
+          bt.textContent = '0';
+          badgeG.appendChild(bg); badgeG.appendChild(bt);
+          g.appendChild(badgeG);
+          // Breakpoint dot (top-left).
+          const bpG = document.createElementNS(SVG_NS, 'g');
+          bpG.setAttribute('class', 'node-bp');
+          const bpDot = document.createElementNS(SVG_NS, 'circle');
+          bpDot.setAttribute('class', 'bp-dot');
+          bpDot.setAttribute('cx', 6); bpDot.setAttribute('cy', 6);
+          bpDot.setAttribute('r', 5);
+          bpG.appendChild(bpDot);
+          g.appendChild(bpG);
+          // Apply BP / selection state.
+          if (typeof breakpoints !== 'undefined' && breakpoints.has(name)) {
+            g.classList.add('has-bp');
+            const def = breakpoints.get(name);
+            if (def && def.when) g.classList.add('has-bp-cond');
+          }
+          if (selected === name) g.classList.add('selected');
+          nodeIndex.set(name, {
+            g, badge: bt, badgeG,
+            edgesFrom: [], edgesTo: [], groupName: null,
+          });
           g.addEventListener('click', ev => {
             ev.stopPropagation();
             if (typeof select === 'function') select(name);
+          });
+          g.addEventListener('contextmenu', ev => {
+            ev.preventDefault();
+            if (typeof toggleBreakpoint === 'function') {
+              toggleBreakpoint(name, { editCondition: ev.altKey || ev.shiftKey });
+            }
           });
         }
       }
