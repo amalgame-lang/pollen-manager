@@ -1627,3 +1627,75 @@ li.tree-node.selected > .block-seq-root > .seq-step.selected > .block {
   padding: 4px 10px; border-radius: var(--radius-sm); cursor: pointer;
 }
 .draft-btn:hover { background: rgba(245, 180, 0, 0.24); border-color: var(--accent); }
+
+/* ── Structured block DAG (refactor 2026-05-28) ──────────────── */
+#dag .b-atomic rect {
+  fill: var(--bg-1);
+  stroke: var(--line-mid);
+  stroke-width: 1.5;
+  transition: stroke 100ms;
+}
+#dag .b-atomic.b-call rect {
+  fill: rgba(100, 150, 255, 0.10);
+  stroke: rgba(100, 150, 255, 0.55);
+}
+#dag .b-atomic.b-fan_out rect {
+  fill: rgba(200, 150, 255, 0.10);
+  stroke: rgba(200, 150, 255, 0.55);
+}
+#dag .b-atomic.b-set rect {
+  fill: rgba(210, 200, 100, 0.10);
+  stroke: rgba(210, 200, 100, 0.55);
+}
+#dag .b-atomic text {
+  fill: var(--fg);
+  font: 13px var(--font-mono);
+  pointer-events: none;
+}
+#dag .b-atomic.b-set text { font-size: 11px; }
+#dag .b-atomic:hover rect { stroke-width: 2; }
+#dag .b-atomic { cursor: pointer; }
+
+#dag .b-loop-frame {
+  fill: rgba(255, 180, 80, 0.07);
+  stroke: rgba(255, 180, 80, 0.55);
+  stroke-width: 1.5;
+}
+#dag .b-loop-frame.b-while { stroke: rgba(255, 140, 80, 0.6); }
+#dag .b-if-frame {
+  fill: rgba(180, 140, 255, 0.07);
+  stroke: rgba(180, 140, 255, 0.55);
+  stroke-width: 1.5;
+}
+#dag .b-loop-hdr {
+  fill: var(--fg-dim);
+  font: 11px var(--font-mono);
+  pointer-events: none;
+}
+#dag .b-branch-label {
+  fill: var(--fg-muted);
+  font: 10px var(--font-mono);
+  pointer-events: none;
+}
+#dag .b-loop-arc {
+  stroke: rgba(255, 180, 80, 0.75);
+  stroke-width: 2;
+  fill: none;
+}
+#dag .b-loop-frame.b-while ~ .b-loop-arc {
+  stroke: rgba(255, 140, 80, 0.75);
+}
+#dag .b-conn {
+  stroke: var(--fg-dim);
+  stroke-width: 1.5;
+  marker-end: url(#arrow);
+}
+#dag .b-unknown rect {
+  fill: var(--bg-2);
+  stroke: var(--line-mid);
+  stroke-dasharray: 3 3;
+}
+#dag .b-unknown text {
+  fill: var(--fg-dim);
+  font: 11px var(--font-mono);
+}
