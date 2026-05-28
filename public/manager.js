@@ -1873,15 +1873,10 @@
       return bar;
     }
 
-    // Phase 5.7.12 — adders inside the sequence only for NESTED
-    // sequences (inside if.then or for.do). The root sequence
-    // is served by the unified tree-head toolbar (which knows
-    // about selection) ; duplicating it inside the block was
-    // visual noise.
-    if (!isRoot) {
-      block.insertBefore(makeAddersBar(), block.firstChild);
-      block.appendChild(makeAddersBar());
-    }
+    // Nested sequences NO LONGER show their own adder bars : the
+    // single top toolbar handles inserts via nestedSelection. Clicking
+    // a nested step selects its position ; the next top-toolbar adder
+    // inserts right after.
 
     return block;
   }
@@ -2716,8 +2711,27 @@
     }
   }
 
+  // Fresh node-name generator + placeholder entry. Inserting a `call`
+  // step with an empty `node` field used to leave the DAG silent —
+  // there was no entry in wf.nodes to draw, so the user had to find
+  // the inspector and type a name first. Now `+ call` auto-creates
+  // a placeholder node ("node-N", next free) so the DAG immediately
+  // shows the new block ; the user renames / wires it in the inspector.
+  function freshNodeName() {
+    const taken = new Set(Object.keys(wf.nodes || {}));
+    let i = 1;
+    while (taken.has('node-' + i)) i++;
+    return 'node-' + i;
+  }
+  function makeFreshCallStep() {
+    if (!wf.nodes) wf.nodes = {};
+    const name = freshNodeName();
+    wf.nodes[name] = { host: '127.0.0.1', port: 0, consumes: [], emits: [] };
+    return { type: 'call', node: name };
+  }
+
   const treeAddSpecs = [
-    ['tree-add-call',    'call',    () => ({ type: 'call', node: '' })],
+    ['tree-add-call',    'call',    () => makeFreshCallStep()],
     ['tree-add-fan_out', 'fan_out', () => ({ type: 'fan_out', nodes: [] })],
     ['tree-add-if',      'if',      () => ({
       type: 'if',
