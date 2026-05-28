@@ -372,15 +372,15 @@
         return [];
       }
       if (t === 'while') {
-        // v0.1.23 — explicit while.body : render the cycle
-        // controller → body → controller (one edge each direction).
-        // Without a body (v1 implicit-self) fall back to a self-loop.
-        const bodyTargets = collectCallTargets(step.body);
-        if (bodyTargets.length) {
-          frontier.forEach(f => bodyTargets.forEach(b => {
-            emit(f, b, 'while', 'body');
-            emit(b, f, 'while', 'back');
-          }));
+        // v0.1.23 — explicit while.body : walk it as a sub-flow that
+        // starts from the controller (frontier) and returns to the
+        // controller. The walk emits all internal edges (so a body
+        // sequence like [call A, call B] gives controller → A → B →
+        // controller). v1 implicit-self → small self-loop.
+        if (step.body) {
+          const bodyEnd = walk(step.body, frontier, 'body');
+          bodyEnd.forEach(end => frontier.forEach(f =>
+            emit(end, f, 'while', 'back')));
         } else {
           frontier.forEach(f => emit(f, f, 'while', 'while'));
         }
@@ -782,6 +782,7 @@
       refreshInjectTargets();
     }
     renderTree();
+    reapplySelection();
   }
 
   // ── workflow tree view (Phase 5.x) ─────────────────────────────
@@ -1537,6 +1538,7 @@
       if (!br.then) br.then = { type: 'fan_out', nodes: [] };
       thenWrap.dataset.bodyKey = 'then';
       thenWrap.classList.add('body-slot');
+      thenWrap._bodyParent = br;
       thenWrap.addEventListener('click', ev => {
         ev.stopPropagation();
         selectBodySlot(br, 'then', thenWrap);
@@ -1646,6 +1648,7 @@
       ev.stopPropagation();
       selectBodySlot(step, 'do', doSlot);
     });
+    doSlot._bodyParent = step;
     doSlot.appendChild(buildAction(step.do, step, 'do'));
     body.appendChild(doSlot);
     block.appendChild(body);
@@ -1700,6 +1703,7 @@
       ev.stopPropagation();
       selectBodySlot(step, 'body', bodySlot);
     });
+    bodySlot._bodyParent = step;
     bodySlot.appendChild(buildAction(step.body, step, 'body'));
     body.appendChild(bodySlot);
     block.appendChild(body);
@@ -1745,6 +1749,7 @@
     block.className = 'block block-seq' + (isRoot ? ' block-seq-root' : '');
     if (!Array.isArray(step.steps)) step.steps = [];
     const steps = step.steps;
+    block._stepsRef = steps;  // for reapplySelection after render
 
     steps.forEach((s, i) => {
       const slot = document.createElement('div');
@@ -2351,6 +2356,35 @@
     setSelectedStep(-1);
     nestedSelection = { steps: stepsArray, idx: idx };
     if (domEl) domEl.classList.add('selected-nested');
+  }
+
+  // Called at the end of render() to re-show the nested-selection
+  // highlight on the freshly-rebuilt DOM. The state survives renders
+  // (it's ref-based) ; the visual class doesn't, so we walk the live
+  // DOM and find whichever slot matches.
+  function reapplySelection() {
+    if (!nestedSelection) return;
+    if (nestedSelection.steps) {
+      const blocks = document.querySelectorAll('.block-seq');
+      for (const block of blocks) {
+        if (block._stepsRef === nestedSelection.steps) {
+          const el = block.querySelector(
+            `.seq-step[data-step-idx="${nestedSelection.idx}"]`);
+          if (el) { el.classList.add('selected-nested'); return; }
+        }
+      }
+      return;
+    }
+    if (nestedSelection.bodyParent && nestedSelection.bodyKey) {
+      const slots = document.querySelectorAll('.body-slot, .branch-then');
+      for (const slot of slots) {
+        if (slot._bodyParent === nestedSelection.bodyParent
+            && slot.dataset.bodyKey === nestedSelection.bodyKey) {
+          slot.classList.add('selected-nested');
+          return;
+        }
+      }
+    }
   }
 
   function setSelectedStep(idx) {
