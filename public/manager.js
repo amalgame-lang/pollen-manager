@@ -624,7 +624,14 @@
     return { w: _BW, h: _BH };
   }
 
-  function placeBlock(step, x, y) {
+  // ctx (optional) = where this step lives in the tree. Used to point
+  // the outline-side selection at the SPECIFIC block the user clicked
+  // (vs falling back to "first occurrence of this name", which broke
+  // when the same call appeared more than once in the tree).
+  //   { kind:'root', idx }                — top-level sequence step
+  //   { kind:'seq',  steps, idx }         — nested sequence step
+  //   { kind:'body', parent, key }        — single-action body slot
+  function placeBlock(step, x, y, ctx) {
     if (!step || typeof step !== 'object') return;
     const t = step.type;
     if (t === 'call' || t === 'fan_out' || t === 'set') {
@@ -676,6 +683,7 @@
             if (def && def.when) g.classList.add('has-bp-cond');
           }
           if (selected === name) g.classList.add('selected');
+          g.dataset.node = name;  // multi-block lookup (same name × N)
           nodeIndex.set(name, {
             g, badge: bt, badgeG,
             edgesFrom: [], edgesTo: [], groupName: null,
@@ -683,8 +691,9 @@
           g.addEventListener('click', ev => {
             ev.stopPropagation();
             if (typeof select === 'function') select(name);
-            // Sync outline : highlight the matching step too.
-            const ctx = findCallContext(name);
+            // Sync outline using THIS block's ctx (not a name search) :
+            // many tree positions can share the same call action ; the
+            // click identifies which one was actually targeted.
             if (ctx) {
               if (ctx.kind === 'root') setSelectedStep(ctx.idx);
               else if (ctx.kind === 'seq') selectNestedSeqStep(ctx.steps, ctx.idx, null);
@@ -704,16 +713,19 @@
     if (t === 'sequence') {
       const steps = Array.isArray(step.steps) ? step.steps : [];
       let cy = y;
-      // Left-align children for better readability — atomic blocks
-      // share a flush-left edge so the eye scans straight down.
+      // Decide child ctx kind : if this sequence IS the root tree it's
+      // 'root'+idx, otherwise the children live in a nested sequence.
+      const isRootSeq = ctx == null;  // top-level call had no ctx
       steps.forEach((s, i) => {
         const im = measureBlock(s);
-        placeBlock(s, x, cy);
+        const childCtx = isRootSeq
+          ? { kind: 'root', idx: i }
+          : { kind: 'seq', steps: steps, idx: i };
+        placeBlock(s, x, cy, childCtx);
         cy += im.h;
         if (i < steps.length - 1) {
           const ln = document.createElementNS(SVG_NS, 'line');
           ln.setAttribute('class', 'b-conn');
-          // Connector lives near the centre of the atomic-block column.
           const lx = x + _BW / 2;
           ln.setAttribute('x1', lx);
           ln.setAttribute('y1', cy);
@@ -744,8 +756,14 @@
         : `while ${_condSummary(step.cond)}  maxIter=${step.maxIter || '∞'}`;
       $svg.appendChild(hdr);
       if (inner) {
-        // Left-aligned inside the loop frame.
-        placeBlock(inner, x + _BP, y + _LHDR + _BP / 2);
+        // Body slot ctx :
+        // - single action body → ctx = body slot (used by call click).
+        // - sequence body → pass a non-null sentinel so the nested
+        //   sequence builds its children's ctxs as 'seq' (not 'root').
+        const innerCtx = inner.type === 'sequence'
+          ? { kind: 'nestedSeq' }
+          : { kind: 'body', parent: step, key: t === 'for' ? 'do' : 'body' };
+        placeBlock(inner, x + _BP, y + _LHDR + _BP / 2, innerCtx);
       }
       return;
     }
@@ -779,7 +797,10 @@
         lbl.textContent = lblText;
         $svg.appendChild(lbl);
         if (b && b.then) {
-          placeBlock(b.then, cx, y + _LHDR + 16);
+          const thenCtx = b.then.type === 'sequence'
+            ? { kind: 'nestedSeq' }
+            : { kind: 'body', parent: b, key: 'then' };
+          placeBlock(b.then, cx, y + _LHDR + 16, thenCtx);
         }
         cx += tm.w + _BR;
       });
@@ -2279,20 +2300,22 @@
   function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
   // ── selection / inspector ───────────────────────────────────
+  // Same call action can appear in several tree positions ; the DAG
+  // renders one block per position. Look them all up by data-node
+  // instead of nodeIndex (which only holds the last one rendered).
+  function _dagBlocksFor(name) {
+    if (!name || !$svg) return [];
+    return Array.from($svg.querySelectorAll(
+      `g.b-atomic[data-node="${CSS.escape(name)}"]`));
+  }
+
   function select(name) {
     if (selected === name) { syncInspector(); return; }
     const prev = selected;
     selected = name;
     $delete.disabled = !name;
-    // Toggle .selected class on the affected nodes only.
-    if (prev) {
-      const e = nodeIndex.get(prev);
-      if (e && e.g) e.g.classList.remove('selected');
-    }
-    if (name) {
-      const e = nodeIndex.get(name);
-      if (e && e.g) e.g.classList.add('selected');
-    }
+    _dagBlocksFor(prev).forEach(g => g.classList.remove('selected'));
+    _dagBlocksFor(name).forEach(g => g.classList.add('selected'));
     syncInspector();
   }
 
@@ -3555,9 +3578,7 @@
   }
 
   function flashNode(role) {
-    const e = nodeIndex.get(role);
-    if (!e || !e.g) return;
-    restartFlash(e.g, 'flash', 1400);
+    _dagBlocksFor(role).forEach(g => restartFlash(g, 'flash', 1400));
   }
 
   function flashEdge(from, to) {
@@ -3693,16 +3714,14 @@
 
   function clearPausedHighlight() {
     if (!dbgPausedRole) return;
-    const e = nodeIndex.get(dbgPausedRole);
-    if (e && e.g) e.g.classList.remove('paused');
+    _dagBlocksFor(dbgPausedRole).forEach(g => g.classList.remove('paused'));
     dbgPausedRole = null;
   }
 
   function setPausedHighlight(role) {
     if (dbgPausedRole === role) return;
     clearPausedHighlight();
-    const e = nodeIndex.get(role);
-    if (e && e.g) e.g.classList.add('paused');
+    _dagBlocksFor(role).forEach(g => g.classList.add('paused'));
     dbgPausedRole = role;
   }
 
@@ -4200,13 +4219,12 @@
   function persistBpUiChange(name) {
     saveBreakpoints();
     syncBpSummary();
-    const e = nodeIndex.get(name);
-    if (e && e.g) {
-      e.g.classList.toggle('has-bp', breakpoints.has(name));
-      const has = breakpoints.has(name);
-      const cond = has && breakpoints.get(name).when;
-      e.g.classList.toggle('has-bp-cond', !!cond);
-    }
+    const has = breakpoints.has(name);
+    const cond = has && breakpoints.get(name).when;
+    _dagBlocksFor(name).forEach(g => {
+      g.classList.toggle('has-bp', has);
+      g.classList.toggle('has-bp-cond', !!cond);
+    });
     if (typeof refreshInjectHint === 'function'
         && $injectPanel && !$injectPanel.hidden) {
       refreshInjectHint();
@@ -4273,13 +4291,12 @@
     else breakpoints.set(name, {});
     saveBreakpoints();
     syncBpSummary();
-    const e = nodeIndex.get(name);
-    if (e && e.g) {
-      e.g.classList.toggle('has-bp', breakpoints.has(name));
-      const has = breakpoints.has(name);
-      const cond = has && breakpoints.get(name).when;
-      e.g.classList.toggle('has-bp-cond', !!cond);
-    }
+    const has = breakpoints.has(name);
+    const cond = has && breakpoints.get(name).when;
+    _dagBlocksFor(name).forEach(g => {
+      g.classList.toggle('has-bp', has);
+      g.classList.toggle('has-bp-cond', !!cond);
+    });
     // Refresh the inject hint if the panel is open. The function
     // is defined later in this IIFE but hoisted (function decl)
     // so we can call it from here.
@@ -4381,9 +4398,10 @@
 
   bindBpBar($bpClear, () => {
     if (breakpoints.size === 0) return;
-    // Visual clear : walk every node group and drop the .has-bp class.
-    for (const [name, entry] of nodeIndex.entries()) {
-      if (entry && entry.g) entry.g.classList.remove('has-bp');
+    // Visual clear : every call block in the DAG.
+    if ($svg) {
+      $svg.querySelectorAll('g.b-atomic.has-bp, g.b-atomic.has-bp-cond')
+        .forEach(g => { g.classList.remove('has-bp'); g.classList.remove('has-bp-cond'); });
     }
     breakpoints.clear();
     saveBreakpoints();
