@@ -372,13 +372,43 @@
         return [];
       }
       if (t === 'while') {
-        // Self-loop on each frontier node — while continues at the
-        // same role until cond becomes false.
-        frontier.forEach(f => emit(f, f, 'while', 'while'));
+        // v0.1.23 — explicit while.body : render the cycle
+        // controller → body → controller (one edge each direction).
+        // Without a body (v1 implicit-self) fall back to a self-loop.
+        const bodyTargets = collectCallTargets(step.body);
+        if (bodyTargets.length) {
+          frontier.forEach(f => bodyTargets.forEach(b => {
+            emit(f, b, 'while', 'body');
+            emit(b, f, 'while', 'back');
+          }));
+        } else {
+          frontier.forEach(f => emit(f, f, 'while', 'while'));
+        }
         return frontier;
       }
       // set / end / unknown — passthrough.
       return frontier;
+    }
+    // Names of nodes called by a step (call / fan_out / sequence's
+    // first dispatchable). Used to expand body / do clauses into
+    // explicit edges.
+    function collectCallTargets(step) {
+      if (!step || typeof step !== 'object') return [];
+      if (step.type === 'call') {
+        const n = step.node || step.action;
+        return n ? [n] : [];
+      }
+      if (step.type === 'fan_out') {
+        const arr = Array.isArray(step.nodes) ? step.nodes
+                  : Array.isArray(step.actions) ? step.actions : [];
+        return arr.filter(s => typeof s === 'string');
+      }
+      if (step.type === 'sequence' && Array.isArray(step.steps)) {
+        for (const s of step.steps) {
+          if (s && s.type !== 'set') return collectCallTargets(s);
+        }
+      }
+      return [];
     }
     walk(wf.tree, [], '');
     return out;
