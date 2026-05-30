@@ -2088,6 +2088,23 @@ body[data-mode="edit"] #dag .b-atomic .node-badge { display: none; }
   margin-top: 6px;
   border-top: 1px dashed var(--line-mid);
 }
+/* Per-level toolbar inside for/while/case bodies — same buttons
+   as the entry-level one but visually quieter (no border, smaller
+   buttons, dimmed until hover) so it doesn't compete with the
+   step lines around it. */
+.v3-step-toolbar-sub {
+  border-top: none;
+  margin-top: 1px;
+  padding: 1px 4px 2px;
+  opacity: 0.35;
+  transition: opacity 0.12s;
+}
+.v3-step-toolbar-sub:hover,
+.v3-step-root:hover .v3-step-toolbar-sub { opacity: 1; }
+.v3-step-toolbar-sub .v3-step-add {
+  font-size: 9px;
+  padding: 1px 6px;
+}
 .v3-step-add {
   font: 10px var(--font-mono);
   background: var(--bg-2);

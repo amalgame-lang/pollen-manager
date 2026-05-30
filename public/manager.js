@@ -1296,6 +1296,17 @@
     if (typeof idx !== 'number' || idx < 0 || idx >= arr.length) return;
     arr.splice(idx, 1);
   }
+  function appendV3NestedStep(parentStep, key, kind) {
+    if (!parentStep || !key) return;
+    let arr = parentStep[key];
+    if (!Array.isArray(arr)) {
+      // Same normalisation rule as the delete path — single-object
+      // do becomes a 1-elt array before we push the new sibling.
+      arr = (arr && typeof arr === 'object') ? [arr] : [];
+      parentStep[key] = arr;
+    }
+    arr.push(makeV3StepTemplate(kind));
+  }
 
   // ── Inline step editor (slice 4b) ─────────────────────────────
   // Returns a <div class="v3-step-form"> containing input rows for
@@ -3101,6 +3112,32 @@
 
     // Render a step into a chain of <div class="v3-step"> lines. Gotos
     // become clickable spans that scroll to the target's card/anchor.
+    // Per-level add toolbar — appended at the end of every for/while
+    // body and every case `do`, so new steps can land inside any
+    // container without going through the JSON editor. depth here is
+    // the depth of the child steps that will be appended.
+    function makeSubToolbar(parentStep, parentKey, depth) {
+      const bar = document.createElement('div');
+      bar.className = 'v3-step-toolbar v3-step-toolbar-sub';
+      bar.style.paddingLeft = (depth * 18) + 'px';
+      ['call', 'set', 'if', 'for', 'while', 'goto', 'anchor']
+        .forEach(kind => {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'v3-step-add';
+          btn.textContent = '+ ' + kind;
+          btn.title = 'Append a ' + kind + ' step here';
+          btn.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            appendV3NestedStep(parentStep, parentKey, kind);
+            markDirty();
+            render();
+          });
+          bar.appendChild(btn);
+        });
+      return bar;
+    }
+
     function buildSteps(step, depth, out, parentStep, parentKey, parentIdx) {
       if (!step) return;
       if (Array.isArray(step)) {
@@ -3157,12 +3194,14 @@
           // post-build pass can splice into c.do (normalising the
           // single-object → array form on demand).
           buildSteps(c && c.do, depth + 2, out, c, 'do');
+          out.push(makeSubToolbar(c, 'do', depth + 2));
         });
         return;
       } else if (t === 'for') {
         line.textContent = 'for ' + (step.var || '?') + ' in ' + (step.in || '?');
         out.push(line);
         buildSteps(step.do, depth + 1, out, step, 'do');
+        out.push(makeSubToolbar(step, 'do', depth + 1));
         return;
       } else if (t === 'while') {
         let txt = 'while ' + (step.cond || '?');
@@ -3170,6 +3209,7 @@
         line.textContent = txt;
         out.push(line);
         buildSteps(step.do, depth + 1, out, step, 'do');
+        out.push(makeSubToolbar(step, 'do', depth + 1));
         return;
       } else if (t === 'goto') {
         line.appendChild(document.createTextNode('goto '));
