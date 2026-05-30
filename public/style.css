@@ -1808,3 +1808,37 @@ body[data-mode="edit"] #dag .b-atomic .node-badge { display: none; }
   overflow-x: auto;
 }
 .v3-empty { color: var(--fg-muted); font-style: italic; }
+
+/* ── v3 step lines + goto navigation ──────────────────────────── */
+.v3-step {
+  font: 11px var(--font-mono);
+  padding: 2px 4px;
+  border-radius: 3px;
+}
+.v3-step-call    { color: #8cf; }
+.v3-step-set     { color: #fc8; }
+.v3-step-if      { color: #faa; font-weight: 600; }
+.v3-step-case    { color: #cba; }
+.v3-step-for     { color: #afa; font-weight: 600; }
+.v3-step-while   { color: #fca; font-weight: 600; }
+.v3-step-goto    { color: #aaf; }
+.v3-step-anchor  { color: #cfc; font-style: italic; }
+.v3-goto-link {
+  color: #6bf;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.v3-goto-link:hover { color: #9df; }
+.v3-anchor-hint {
+  font-size: 10px;
+  color: var(--fg-muted);
+  margin-left: 6px;
+  font-style: italic;
+}
+.v3-flash {
+  animation: v3-flash-anim 0.6s ease-out;
+}
+@keyframes v3-flash-anim {
+  0%   { background: rgba(110, 180, 255, 0.35); }
+  100% { background: transparent; }
+}
