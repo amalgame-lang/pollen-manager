@@ -2167,25 +2167,26 @@ body[data-mode="edit"] #dag .b-atomic .node-badge { display: none; }
 }
 .v3-step-add-bar {
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  padding: 4px 6px;
+  flex-direction: column;
+  gap: 1px;
+  padding: 3px;
   margin: 2px 0;
   background: var(--bg-2);
   border: 1px dashed var(--line-mid);
   border-radius: 4px;
 }
 .v3-step-add {
-  font: 10px var(--font-mono);
-  background: var(--bg-1);
-  border: 1px solid var(--line-mid);
+  font: 11px var(--font-mono);
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
   color: var(--fg-1);
-  padding: 2px 8px;
+  padding: 3px 10px;
   border-radius: 3px;
   cursor: pointer;
 }
 .v3-step-add:hover {
-  background: var(--bg-0);
+  background: var(--bg-1);
   border-color: #6bf;
   color: #9df;
 }
