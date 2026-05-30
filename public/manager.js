@@ -3287,9 +3287,11 @@
 
     // Render a step into a chain of <div class="v3-step"> lines. Gotos
     // become clickable spans that scroll to the target's card/anchor.
-    // Build a "+" button that, when clicked, reveals a popover with
-    // the 7 step kinds. Clicking a kind invokes onPick(kind) — caller
-    // decides whether to append, insert after, splice, etc.
+    // Build a "+" button that, when clicked, reveals a horizontal
+    // toolbar of "+ call / + set / + if / …" pill buttons. Click a
+    // pill → onPick(kind). The toolbar is the same horizontal pill
+    // layout we used to show always-on, now just hidden by default
+    // and unfolded on demand.
     function makeAddButton(onPick, opts) {
       opts = opts || {};
       const wrap = document.createElement('span');
@@ -3299,45 +3301,46 @@
       btn.className = 'v3-step-add-btn';
       btn.textContent = '+';
       btn.title = opts.title || 'Add a step';
-      const pop = document.createElement('div');
-      pop.className = 'v3-step-add-pop';
-      pop.hidden = true;
+      const bar = document.createElement('div');
+      bar.className = 'v3-step-add-bar';
+      bar.hidden = true;
       ['call', 'set', 'if', 'for', 'while', 'goto', 'anchor']
         .forEach(kind => {
           const item = document.createElement('button');
           item.type = 'button';
-          item.className = 'v3-step-add-pop-item v3-step-add-pop-' + kind;
-          item.textContent = kind;
+          item.className = 'v3-step-add';
+          item.textContent = '+ ' + kind;
+          item.title = 'Add a ' + kind + ' step';
           item.addEventListener('click', (ev) => {
             ev.stopPropagation();
-            pop.hidden = true;
+            bar.hidden = true;
             onPick(kind);
           });
-          pop.appendChild(item);
+          bar.appendChild(item);
         });
       btn.addEventListener('click', (ev) => {
         ev.stopPropagation();
-        const wasHidden = pop.hidden;
-        // Close any other popover that might be open elsewhere.
-        document.querySelectorAll('.v3-step-add-pop')
-                .forEach(p => { if (p !== pop) p.hidden = true; });
-        pop.hidden = !wasHidden;
+        const wasHidden = bar.hidden;
+        // Close any other add-bar that might be open elsewhere.
+        document.querySelectorAll('.v3-step-add-bar')
+                .forEach(b => { if (b !== bar) b.hidden = true; });
+        bar.hidden = !wasHidden;
       });
-      // Outside click closes the popover. One global listener per
-      // popover is wasteful but the popovers live as long as the
-      // render does so cleanup happens on next render.
+      // Outside click closes the bar. One global listener per
+      // wrap is wasteful but they live as long as the render does
+      // so cleanup happens on next render.
       const onDocClick = (ev) => {
-        if (!pop.hidden && !wrap.contains(ev.target)) pop.hidden = true;
+        if (!bar.hidden && !wrap.contains(ev.target)) bar.hidden = true;
       };
       document.addEventListener('click', onDocClick);
       wrap.appendChild(btn);
-      wrap.appendChild(pop);
+      wrap.appendChild(bar);
       return wrap;
     }
     // Empty-container affordance — used where there's no existing
     // step to hang a "+" on (entry with do=[], for body that's
-    // empty, case do that's empty). Shows "+ Add first step" that
-    // opens the same popover as the per-step "+".
+    // empty, case do that's empty). Shows "+ add step" that
+    // unfolds the same pill toolbar as the per-step "+".
     function makeEmptyAdd(onPick) {
       const wrap = document.createElement('div');
       wrap.className = 'v3-empty-add';
@@ -3686,7 +3689,7 @@
               if (ev.target.closest('.v3-goto-link')) return;
               if (ev.target.closest('.v3-step-del')) return;
               if (ev.target.closest('.v3-step-add-wrap')) return;
-              if (ev.target.closest('.v3-step-add-pop')) return;
+              if (ev.target.closest('.v3-step-add-bar')) return;
               editor.hidden = !editor.hidden;
             });
             // Nested + / ✕ : lines that came in through a parent
