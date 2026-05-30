@@ -602,7 +602,11 @@ button#save:hover:not(:disabled) {
   color: var(--bg-0);
 }
 button#save.pulse {
-  box-shadow: 0 0 0 3px var(--accent-glow);
+  animation: save-pulse 1.4s ease-in-out infinite;
+}
+@keyframes save-pulse {
+  0%, 100% { box-shadow: 0 0 0 2px var(--accent-glow); }
+  50%      { box-shadow: 0 0 0 8px var(--accent-glow); }
 }
 
 /* ── DAG canvas ───────────────────────────────────────────── */
@@ -2021,6 +2025,57 @@ body[data-mode="edit"] #dag .b-atomic .node-badge { display: none; }
   stroke-width: 1.5;
 }
 .v3-fc-cross text { font-weight: 600; }
+
+/* ── v3 entry editor controls (slice 4a) ──────────────────────── */
+.v3-step-root {
+  position: relative;
+  margin: 0 0 1px;
+}
+.v3-step-root:hover { background: rgba(255, 255, 255, 0.03); }
+.v3-step-del {
+  position: absolute;
+  top: 1px;
+  right: 4px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  font-size: 11px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--fg-muted);
+  border-radius: 3px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.v3-step-root:hover .v3-step-del { opacity: 1; }
+.v3-step-del:hover {
+  color: #f88;
+  border-color: #844;
+  background: rgba(255, 100, 100, 0.1);
+}
+.v3-step-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px 4px 2px;
+  margin-top: 6px;
+  border-top: 1px dashed var(--line-mid);
+}
+.v3-step-add {
+  font: 10px var(--font-mono);
+  background: var(--bg-2);
+  border: 1px solid var(--line-mid);
+  color: var(--fg-1);
+  padding: 2px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.v3-step-add:hover {
+  background: var(--bg-1);
+  border-color: #6bf;
+  color: #9df;
+}
 
 /* ── v3 flowchart loop clusters (compound containers) ─────────── */
 .v3-fc-cluster rect {

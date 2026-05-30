@@ -1236,6 +1236,48 @@
     });
   }
 
+  // ── v3 entry mutations (slice 4a — root-level only) ───────────
+  // Append a freshly-templated step to entry.do. If entry.do is a
+  // single step (not an array), it's normalised to a 1-element
+  // array on the spot so subsequent edits don't have to deal with
+  // both shapes.
+  function getV3DoArr(entry) {
+    if (!entry) return null;
+    if (Array.isArray(entry.do)) return entry.do;
+    if (entry.do && typeof entry.do === 'object') {
+      entry.do = [entry.do];
+      return entry.do;
+    }
+    entry.do = [];
+    return entry.do;
+  }
+  function makeV3StepTemplate(kind) {
+    switch (kind) {
+      case 'call':   return { type: 'call', action: 'TODO' };
+      case 'set':    return { type: 'set', key: 'state.TODO',
+                              value: '""' };
+      case 'if':     return { type: 'if', cases: [
+                                { when: 'true', do: [] }] };
+      case 'for':    return { type: 'for', var: 'item',
+                              in: 'state.items', do: [] };
+      case 'while':  return { type: 'while', cond: 'true',
+                              maxIter: 100, do: [] };
+      case 'goto':   return { type: 'goto', target: 'TODO' };
+      case 'anchor': return { type: 'anchor', name: 'TODO' };
+      default:       return { type: kind || 'unknown' };
+    }
+  }
+  function addV3RootStep(entry, kind) {
+    const arr = getV3DoArr(entry);
+    if (!arr) return;
+    arr.push(makeV3StepTemplate(kind));
+  }
+  function removeV3RootStep(entry, idx) {
+    const arr = getV3DoArr(entry);
+    if (!arr || idx < 0 || idx >= arr.length) return;
+    arr.splice(idx, 1);
+  }
+
   function renderBlockDag() {
     nodeIndex.clear();
     $svg.innerHTML = '';
@@ -3020,16 +3062,60 @@
 
       const body = document.createElement('div');
       body.className = 'v3-entry-body';
-      const steps = [];
-      buildSteps(e.do, 0, steps);
-      if (steps.length === 0) {
+      // Top-level steps live in the entry's `do` array (or a single
+      // step which we normalise to a 1-element array on first edit).
+      // Each root step gets a Delete button — nested steps don't,
+      // edit slice 4b will handle nested.
+      const doArr = Array.isArray(e.do) ? e.do
+                  : (e.do && typeof e.do === 'object') ? [e.do]
+                  : [];
+      if (doArr.length === 0) {
         const emptyMsg = document.createElement('div');
         emptyMsg.className = 'v3-empty';
         emptyMsg.textContent = '(empty)';
         body.appendChild(emptyMsg);
       } else {
-        steps.forEach(s => body.appendChild(s));
+        doArr.forEach((rootStep, idx) => {
+          const rootGroup = document.createElement('div');
+          rootGroup.className = 'v3-step-root';
+          const subSteps = [];
+          buildSteps(rootStep, 0, subSteps);
+          subSteps.forEach(s => rootGroup.appendChild(s));
+          const del = document.createElement('button');
+          del.type = 'button';
+          del.className = 'v3-step-del';
+          del.textContent = '✕';
+          del.title = 'Delete this step';
+          del.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            removeV3RootStep(e, idx);
+            markDirty();
+            render();
+          });
+          rootGroup.appendChild(del);
+          body.appendChild(rootGroup);
+        });
       }
+      // Step add toolbar — appended at the bottom of the body so
+      // new steps land where the eye expects (end of the chain).
+      const tb = document.createElement('div');
+      tb.className = 'v3-step-toolbar';
+      ['call', 'set', 'if', 'for', 'while', 'goto', 'anchor']
+        .forEach(kind => {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'v3-step-add';
+          btn.textContent = '+ ' + kind;
+          btn.title = 'Append a ' + kind + ' step to this entry';
+          btn.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            addV3RootStep(e, kind);
+            markDirty();
+            render();
+          });
+          tb.appendChild(btn);
+        });
+      body.appendChild(tb);
       card.appendChild(body);
 
       mainCol.appendChild(card);
