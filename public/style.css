@@ -1943,6 +1943,23 @@ body[data-mode="edit"] #dag .b-atomic .node-badge { display: none; }
   color: #9df;
   font-weight: 600;
 }
+.v3-side-entry { flex-direction: column; align-items: stretch; }
+.v3-side-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+.v3-side-out {
+  font: 9px var(--font-mono);
+  color: #a8c;
+  padding: 0 0 0 12px;
+  margin-top: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.v3-side-active .v3-side-out { color: #cae; }
 
 /* ── v3 flowchart (dagre layout in the main #dag SVG) ───────── */
 .v3-fc-edge {
@@ -1995,6 +2012,15 @@ body[data-mode="edit"] #dag .b-atomic .node-badge { display: none; }
   stroke-width: 2;
   filter: brightness(1.15);
 }
+
+/* Cross-entry goto — long-distance jump to another entry. Dashed
+   border so the operator can tell at a glance that flow LEAVES
+   the currently-displayed entry here. */
+.v3-fc-cross rect {
+  stroke-dasharray: 5 3;
+  stroke-width: 1.5;
+}
+.v3-fc-cross text { font-weight: 600; }
 
 /* ── v3 flowchart loop clusters (compound containers) ─────────── */
 .v3-fc-cluster rect {
