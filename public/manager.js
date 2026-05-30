@@ -1307,6 +1307,25 @@
     }
     arr.push(makeV3StepTemplate(kind));
   }
+  // Insert APRÈS the given index — used by the per-step "+" popover
+  // so a new step lands as the immediate next sibling of the step
+  // you clicked +" on, regardless of where you are in the chain.
+  function insertV3RootStepAfter(entry, idx, kind) {
+    const arr = getV3DoArr(entry);
+    if (!arr) return;
+    const at = Math.max(0, Math.min(arr.length, idx + 1));
+    arr.splice(at, 0, makeV3StepTemplate(kind));
+  }
+  function insertV3NestedStepAfter(parentStep, key, idx, kind) {
+    if (!parentStep || !key) return;
+    let arr = parentStep[key];
+    if (!Array.isArray(arr)) {
+      arr = (arr && typeof arr === 'object') ? [arr] : [];
+      parentStep[key] = arr;
+    }
+    const at = Math.max(0, Math.min(arr.length, idx + 1));
+    arr.splice(at, 0, makeV3StepTemplate(kind));
+  }
 
   // ── Entry-level helpers (slice 4d) ────────────────────────────
   function getV3Entries(wf) {
@@ -3268,30 +3287,68 @@
 
     // Render a step into a chain of <div class="v3-step"> lines. Gotos
     // become clickable spans that scroll to the target's card/anchor.
-    // Per-level add toolbar — appended at the end of every for/while
-    // body and every case `do`, so new steps can land inside any
-    // container without going through the JSON editor. depth here is
-    // the depth of the child steps that will be appended.
-    function makeSubToolbar(parentStep, parentKey, depth) {
-      const bar = document.createElement('div');
-      bar.className = 'v3-step-toolbar v3-step-toolbar-sub';
-      bar.style.paddingLeft = (depth * 18) + 'px';
+    // Build a "+" button that, when clicked, reveals a popover with
+    // the 7 step kinds. Clicking a kind invokes onPick(kind) — caller
+    // decides whether to append, insert after, splice, etc.
+    function makeAddButton(onPick, opts) {
+      opts = opts || {};
+      const wrap = document.createElement('span');
+      wrap.className = 'v3-step-add-wrap';
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'v3-step-add-btn';
+      btn.textContent = '+';
+      btn.title = opts.title || 'Add a step';
+      const pop = document.createElement('div');
+      pop.className = 'v3-step-add-pop';
+      pop.hidden = true;
       ['call', 'set', 'if', 'for', 'while', 'goto', 'anchor']
         .forEach(kind => {
-          const btn = document.createElement('button');
-          btn.type = 'button';
-          btn.className = 'v3-step-add';
-          btn.textContent = '+ ' + kind;
-          btn.title = 'Append a ' + kind + ' step here';
-          btn.addEventListener('click', (ev) => {
+          const item = document.createElement('button');
+          item.type = 'button';
+          item.className = 'v3-step-add-pop-item v3-step-add-pop-' + kind;
+          item.textContent = kind;
+          item.addEventListener('click', (ev) => {
             ev.stopPropagation();
-            appendV3NestedStep(parentStep, parentKey, kind);
-            markDirty();
-            render();
+            pop.hidden = true;
+            onPick(kind);
           });
-          bar.appendChild(btn);
+          pop.appendChild(item);
         });
-      return bar;
+      btn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        const wasHidden = pop.hidden;
+        // Close any other popover that might be open elsewhere.
+        document.querySelectorAll('.v3-step-add-pop')
+                .forEach(p => { if (p !== pop) p.hidden = true; });
+        pop.hidden = !wasHidden;
+      });
+      // Outside click closes the popover. One global listener per
+      // popover is wasteful but the popovers live as long as the
+      // render does so cleanup happens on next render.
+      const onDocClick = (ev) => {
+        if (!pop.hidden && !wrap.contains(ev.target)) pop.hidden = true;
+      };
+      document.addEventListener('click', onDocClick);
+      wrap.appendChild(btn);
+      wrap.appendChild(pop);
+      return wrap;
+    }
+    // Empty-container affordance — used where there's no existing
+    // step to hang a "+" on (entry with do=[], for body that's
+    // empty, case do that's empty). Shows "+ Add first step" that
+    // opens the same popover as the per-step "+".
+    function makeEmptyAdd(onPick) {
+      const wrap = document.createElement('div');
+      wrap.className = 'v3-empty-add';
+      const inner = makeAddButton(onPick, { title: 'Add the first step' });
+      // Override the bare "+" label with a more inviting one for
+      // empty-state.
+      const btn = inner.querySelector('.v3-step-add-btn');
+      btn.textContent = '+ add step';
+      btn.classList.add('v3-step-add-btn-empty');
+      wrap.appendChild(inner);
+      return wrap;
     }
 
     function buildSteps(step, depth, out, parentStep, parentKey, parentIdx) {
@@ -3350,14 +3407,37 @@
           // post-build pass can splice into c.do (normalising the
           // single-object → array form on demand).
           buildSteps(c && c.do, depth + 2, out, c, 'do');
-          out.push(makeSubToolbar(c, 'do', depth + 2));
+          // Empty case body: surface a clickable "+ add step" so the
+          // user can start the chain. Non-empty bodies rely on the
+          // per-step "+" popover that the post-build pass attaches.
+          const caseDoLen = Array.isArray(c && c.do) ? c.do.length
+                          : ((c && c.do) ? 1 : 0);
+          if (caseDoLen === 0) {
+            const ea = makeEmptyAdd((kind) => {
+              appendV3NestedStep(c, 'do', kind);
+              markDirty();
+              render();
+            });
+            ea.style.paddingLeft = ((depth + 2) * 18) + 'px';
+            out.push(ea);
+          }
         });
         return;
       } else if (t === 'for') {
         line.textContent = 'for ' + (step.var || '?') + ' in ' + (step.in || '?');
         out.push(line);
         buildSteps(step.do, depth + 1, out, step, 'do');
-        out.push(makeSubToolbar(step, 'do', depth + 1));
+        const forDoLen = Array.isArray(step.do) ? step.do.length
+                       : (step.do ? 1 : 0);
+        if (forDoLen === 0) {
+          const ea = makeEmptyAdd((kind) => {
+            appendV3NestedStep(step, 'do', kind);
+            markDirty();
+            render();
+          });
+          ea.style.paddingLeft = ((depth + 1) * 18) + 'px';
+          out.push(ea);
+        }
         return;
       } else if (t === 'while') {
         let txt = 'while ' + (step.cond || '?');
@@ -3365,7 +3445,17 @@
         line.textContent = txt;
         out.push(line);
         buildSteps(step.do, depth + 1, out, step, 'do');
-        out.push(makeSubToolbar(step, 'do', depth + 1));
+        const whDoLen = Array.isArray(step.do) ? step.do.length
+                      : (step.do ? 1 : 0);
+        if (whDoLen === 0) {
+          const ea = makeEmptyAdd((kind) => {
+            appendV3NestedStep(step, 'do', kind);
+            markDirty();
+            render();
+          });
+          ea.style.paddingLeft = ((depth + 1) * 18) + 'px';
+          out.push(ea);
+        }
         return;
       } else if (t === 'goto') {
         line.appendChild(document.createTextNode('goto '));
@@ -3500,10 +3590,14 @@
                   : (e.do && typeof e.do === 'object') ? [e.do]
                   : [];
       if (doArr.length === 0) {
-        const emptyMsg = document.createElement('div');
-        emptyMsg.className = 'v3-empty';
-        emptyMsg.textContent = '(empty)';
-        body.appendChild(emptyMsg);
+        // No steps yet — surface the same popover used by the
+        // per-step "+" so the user can add the first step.
+        const ea = makeEmptyAdd((kind) => {
+          addV3RootStep(e, kind);
+          markDirty();
+          render();
+        });
+        body.appendChild(ea);
       } else {
         doArr.forEach((rootStep, idx) => {
           const rootGroup = document.createElement('div');
@@ -3539,6 +3633,14 @@
             render();
           });
           actionsBar.appendChild(down);
+          // "+" sits just before the "✕" and opens a popover with
+          // the 7 step kinds. Click inserts AFTER this step.
+          const addBtn = makeAddButton((kind) => {
+            insertV3RootStepAfter(e, idx, kind);
+            markDirty();
+            render();
+          }, { title: 'Insert a step after this one' });
+          actionsBar.appendChild(addBtn);
           const del = document.createElement('button');
           del.type = 'button';
           del.className = 'v3-step-del';
@@ -3583,17 +3685,27 @@
               if (ev.target.closest('.v3-step-form')) return;
               if (ev.target.closest('.v3-goto-link')) return;
               if (ev.target.closest('.v3-step-del')) return;
+              if (ev.target.closest('.v3-step-add-wrap')) return;
+              if (ev.target.closest('.v3-step-add-pop')) return;
               editor.hidden = !editor.hidden;
             });
-            // Nested delete: lines that came in through a parent
-            // container (for.do / while.do / case.do) get a ✕ on
-            // hover. Case header lines don't qualify — their _v3Step
-            // is the if itself; deleting a case is an if-editor job.
+            // Nested + / ✕ : lines that came in through a parent
+            // container (for.do / while.do / case.do) get both a "+"
+            // (insert after) and "✕" (delete) on hover. Case header
+            // lines don't qualify — their _v3Step is the if itself;
+            // editing cases belongs to the if editor.
             if (line._v3ParentStep && line._v3ParentKey
                 && !line.classList.contains('v3-step-case')) {
               const pStep = line._v3ParentStep;
               const pKey = line._v3ParentKey;
               const childIdx = line._v3Idx;
+              const addBtn = makeAddButton((kind) => {
+                insertV3NestedStepAfter(pStep, pKey, childIdx, kind);
+                markDirty();
+                render();
+              }, { title: 'Insert a step after this one' });
+              addBtn.classList.add('v3-step-add-wrap-nested');
+              line.appendChild(addBtn);
               const ndel = document.createElement('button');
               ndel.type = 'button';
               ndel.className = 'v3-step-del v3-step-del-nested';
@@ -3612,26 +3724,10 @@
           body.appendChild(rootGroup);
         });
       }
-      // Step add toolbar — appended at the bottom of the body so
-      // new steps land where the eye expects (end of the chain).
-      const tb = document.createElement('div');
-      tb.className = 'v3-step-toolbar';
-      ['call', 'set', 'if', 'for', 'while', 'goto', 'anchor']
-        .forEach(kind => {
-          const btn = document.createElement('button');
-          btn.type = 'button';
-          btn.className = 'v3-step-add';
-          btn.textContent = '+ ' + kind;
-          btn.title = 'Append a ' + kind + ' step to this entry';
-          btn.addEventListener('click', (ev) => {
-            ev.stopPropagation();
-            addV3RootStep(e, kind);
-            markDirty();
-            render();
-          });
-          tb.appendChild(btn);
-        });
-      body.appendChild(tb);
+      // No bottom toolbar — adds happen via the per-step "+" popover
+      // (insert after) or via the makeEmptyAdd above for an empty
+      // entry. Append-at-the-end is still reachable by clicking "+"
+      // on the LAST step, which inserts after it.
       card.appendChild(body);
 
       mainCol.appendChild(card);

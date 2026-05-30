@@ -2142,30 +2142,107 @@ body[data-mode="edit"] #dag .b-atomic .node-badge { display: none; }
 }
 .v3-step-has-del { position: relative; padding-right: 26px; }
 .v3-step-has-del:hover .v3-step-del-nested { opacity: 1; }
-.v3-step-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  padding: 6px 4px 2px;
-  margin-top: 6px;
-  border-top: 1px dashed var(--line-mid);
+/* (the .v3-step-toolbar / .v3-step-toolbar-sub bottom-toolbar pattern
+   was retired — replaced by per-step "+" popovers + makeEmptyAdd for
+   empty containers. .v3-step-add is now only used inside the popover
+   menu, styled below.) */
+
+/* "+" button + popover (the new add-step affordance). The "+" sits
+   in v3-step-actions next to "✕" on root steps, and inline on each
+   nested step line. Click reveals .v3-step-add-pop with the 7 kinds
+   stacked vertically — click a kind inserts AFTER the step. */
+.v3-step-add-wrap {
+  position: relative;
+  display: inline-flex;
 }
-/* Per-level toolbar inside for/while/case bodies — same buttons
-   as the entry-level one but visually quieter (no border, smaller
-   buttons, dimmed until hover) so it doesn't compete with the
-   step lines around it. */
-.v3-step-toolbar-sub {
-  border-top: none;
-  margin-top: 1px;
-  padding: 1px 4px 2px;
-  opacity: 0.35;
+.v3-step-add-btn {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--fg-muted);
+  border-radius: 3px;
+  cursor: pointer;
+}
+.v3-step-add-btn:hover {
+  color: #9df;
+  border-color: #468;
+  background: rgba(110, 180, 255, 0.1);
+}
+.v3-step-add-pop {
+  position: absolute;
+  top: calc(100% + 2px);
+  right: 0;
+  z-index: 10;
+  min-width: 110px;
+  display: flex;
+  flex-direction: column;
+  padding: 3px;
+  background: var(--bg-2);
+  border: 1px solid var(--line-mid);
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
+}
+.v3-step-add-pop-item {
+  text-align: left;
+  font: 11px var(--font-mono);
+  padding: 4px 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--fg-1);
+  border-radius: 3px;
+  cursor: pointer;
+}
+.v3-step-add-pop-item:hover {
+  background: var(--bg-1);
+  border-color: #6bf;
+  color: #cef;
+}
+/* Color hints per kind — same palette as .v3-step-* lines. */
+.v3-step-add-pop-call    { color: #8cf; }
+.v3-step-add-pop-set     { color: #fc8; }
+.v3-step-add-pop-if      { color: #faa; font-weight: 600; }
+.v3-step-add-pop-for     { color: #afa; font-weight: 600; }
+.v3-step-add-pop-while   { color: #fca; font-weight: 600; }
+.v3-step-add-pop-goto    { color: #aaf; }
+.v3-step-add-pop-anchor  { color: #cfc; font-style: italic; }
+
+/* Nested "+" lives inline on the step line, positioned next to the
+   nested "✕". On hover-reveal the step line shows both. */
+.v3-step-add-wrap-nested {
+  position: absolute;
+  top: 0;
+  right: 26px;  /* sits to the left of .v3-step-del-nested (right:4 + 18 + 4) */
+  opacity: 0;
   transition: opacity 0.12s;
 }
-.v3-step-toolbar-sub:hover,
-.v3-step-root:hover .v3-step-toolbar-sub { opacity: 1; }
-.v3-step-toolbar-sub .v3-step-add {
-  font-size: 9px;
-  padding: 1px 6px;
+.v3-step-has-del:hover .v3-step-add-wrap-nested { opacity: 1; }
+/* Nested step line needs a bit more padding-right to host BOTH the
+   "+" and the "✕" without overlap with the step text. */
+.v3-step-has-del { padding-right: 50px; }
+
+/* Empty-container affordance — used when an entry has no steps yet,
+   or a for/while body / case do is empty. Pads the row so its
+   popover lines up under the cursor. */
+.v3-empty-add {
+  padding: 4px 4px;
+  margin: 2px 0;
+}
+.v3-step-add-btn-empty {
+  width: auto;
+  padding: 2px 8px;
+  font-size: 10px;
+  color: var(--fg-muted);
+  border-color: var(--line-mid);
+  border-style: dashed;
+}
+.v3-step-add-btn-empty:hover {
+  color: #cef;
+  border-color: #6bf;
+  border-style: solid;
 }
 .v3-step-add {
   font: 10px var(--font-mono);
