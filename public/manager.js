@@ -3287,20 +3287,13 @@
 
     // Render a step into a chain of <div class="v3-step"> lines. Gotos
     // become clickable spans that scroll to the target's card/anchor.
-    // Build a "+" button that, when clicked, reveals a horizontal
-    // toolbar of "+ call / + set / + if / …" pill buttons. Click a
-    // pill → onPick(kind). The toolbar is the same horizontal pill
-    // layout we used to show always-on, now just hidden by default
-    // and unfolded on demand.
-    function makeAddButton(onPick, opts) {
-      opts = opts || {};
-      const wrap = document.createElement('span');
-      wrap.className = 'v3-step-add-wrap';
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'v3-step-add-btn';
-      btn.textContent = '+';
-      btn.title = opts.title || 'Add a step';
+    // Build the in-flow horizontal pill bar ("+ call / + set / + if /
+    // …"). Returned hidden — the caller wires it as a next-sibling of
+    // the step it belongs to, and pairs it with a "+" button (via
+    // makeAddPlusButton) that toggles its visibility. The bar pushes
+    // following steps down when shown, slotting the future insert
+    // point exactly where it'll land.
+    function makeAddBar(onPick) {
       const bar = document.createElement('div');
       bar.className = 'v3-step-add-bar';
       bar.hidden = true;
@@ -3318,6 +3311,19 @@
           });
           bar.appendChild(item);
         });
+      return bar;
+    }
+    // "+" button that toggles a pre-built bar. The bar lives in the
+    // DOM separately (typically as the step's next sibling) so when
+    // visible it pushes following steps down — the bar slots in
+    // exactly where the new step will land.
+    function makeAddPlusButton(bar, opts) {
+      opts = opts || {};
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'v3-step-add-btn';
+      btn.textContent = '+';
+      btn.title = opts.title || 'Add a step';
       btn.addEventListener('click', (ev) => {
         ev.stopPropagation();
         const wasHidden = bar.hidden;
@@ -3326,31 +3332,25 @@
                 .forEach(b => { if (b !== bar) b.hidden = true; });
         bar.hidden = !wasHidden;
       });
-      // Outside click closes the bar. One global listener per
-      // wrap is wasteful but they live as long as the render does
-      // so cleanup happens on next render.
+      // Outside-click closes the bar.
       const onDocClick = (ev) => {
-        if (!bar.hidden && !wrap.contains(ev.target)) bar.hidden = true;
+        if (!bar.hidden && !btn.contains(ev.target)
+            && !bar.contains(ev.target)) bar.hidden = true;
       };
       document.addEventListener('click', onDocClick);
-      wrap.appendChild(btn);
-      wrap.appendChild(bar);
-      return wrap;
+      return btn;
     }
     // Empty-container affordance — used where there's no existing
-    // step to hang a "+" on (entry with do=[], for body that's
-    // empty, case do that's empty). Shows "+ add step" that
-    // unfolds the same pill toolbar as the per-step "+".
+    // step to hang a "+" on (entry with do=[], for/while body
+    // empty, case do empty). The bar is always visible since
+    // there's no real estate for a toggling "+".
     function makeEmptyAdd(onPick) {
       const wrap = document.createElement('div');
       wrap.className = 'v3-empty-add';
-      const inner = makeAddButton(onPick, { title: 'Add the first step' });
-      // Override the bare "+" label with a more inviting one for
-      // empty-state.
-      const btn = inner.querySelector('.v3-step-add-btn');
-      btn.textContent = '+ add step';
-      btn.classList.add('v3-step-add-btn-empty');
-      wrap.appendChild(inner);
+      const bar = makeAddBar(onPick);
+      bar.hidden = false;
+      bar.classList.add('v3-step-add-bar-empty');
+      wrap.appendChild(bar);
       return wrap;
     }
 
@@ -3636,13 +3636,18 @@
             render();
           });
           actionsBar.appendChild(down);
-          // "+" sits just before the "✕" and opens a popover with
-          // the 7 step kinds. Click inserts AFTER this step.
-          const addBtn = makeAddButton((kind) => {
+          // "+" sits just before the "✕" and toggles a bar that
+          // gets inserted in-flow as this step's next sibling, so
+          // following steps push down and the slot where the new
+          // step will land is visually obvious.
+          const rootAddBar = makeAddBar((kind) => {
             insertV3RootStepAfter(e, idx, kind);
             markDirty();
             render();
-          }, { title: 'Insert a step after this one' });
+          });
+          const addBtn = makeAddPlusButton(rootAddBar, {
+            title: 'Insert a step after this one'
+          });
           actionsBar.appendChild(addBtn);
           const del = document.createElement('button');
           del.type = 'button';
@@ -3657,6 +3662,10 @@
           });
           actionsBar.appendChild(del);
           rootGroup.appendChild(actionsBar);
+          // Stash the bar so we can insert it AFTER rootGroup is
+          // appended to body — the in-flow placement is what makes
+          // the pushed-down siblings effect work.
+          rootGroup._v3AddBar = rootAddBar;
           // Per-step inline editor — every line whose ._v3Step is
           // set (so root AND nested steps) gets one. Multiple lines
           // pointing at the same step (e.g. the if header + its
@@ -3702,12 +3711,15 @@
               const pStep = line._v3ParentStep;
               const pKey = line._v3ParentKey;
               const childIdx = line._v3Idx;
-              const addBtn = makeAddButton((kind) => {
+              const nestedAddBar = makeAddBar((kind) => {
                 insertV3NestedStepAfter(pStep, pKey, childIdx, kind);
                 markDirty();
                 render();
-              }, { title: 'Insert a step after this one' });
-              addBtn.classList.add('v3-step-add-wrap-nested');
+              });
+              const addBtn = makeAddPlusButton(nestedAddBar, {
+                title: 'Insert a step after this one'
+              });
+              addBtn.classList.add('v3-step-add-btn-nested');
               line.appendChild(addBtn);
               const ndel = document.createElement('button');
               ndel.type = 'button';
@@ -3722,15 +3734,25 @@
               });
               line.appendChild(ndel);
               line.classList.add('v3-step-has-del');
+              // In-flow nested add-bar — slot between this step and
+              // its next sibling within the container so the future
+              // insert point is visually obvious.
+              line.after(nestedAddBar);
             }
           });
           body.appendChild(rootGroup);
+          // Append the add-bar AFTER the rootGroup so it sits
+          // in-flow between this root step and the next one. The
+          // bar is hidden by default and toggled by the "+" inside
+          // actionsBar above.
+          if (rootGroup._v3AddBar) body.appendChild(rootGroup._v3AddBar);
         });
       }
-      // No bottom toolbar — adds happen via the per-step "+" popover
-      // (insert after) or via the makeEmptyAdd above for an empty
-      // entry. Append-at-the-end is still reachable by clicking "+"
-      // on the LAST step, which inserts after it.
+      // No bottom toolbar — adds happen via the per-step "+" (which
+      // unfolds an in-flow add-bar between the clicked step and the
+      // next one), or via the makeEmptyAdd above for an empty entry.
+      // Append-at-the-end is still reachable by clicking "+" on the
+      // LAST step.
       card.appendChild(body);
 
       mainCol.appendChild(card);
