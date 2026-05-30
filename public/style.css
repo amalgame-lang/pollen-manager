@@ -2142,15 +2142,12 @@ body[data-mode="edit"] #dag .b-atomic .node-badge { display: none; }
 }
 .v3-step-has-del { position: relative; padding-right: 26px; }
 .v3-step-has-del:hover .v3-step-del-nested { opacity: 1; }
-/* "+" button + horizontal add-bar. The "+" sits in v3-step-actions
-   next to "✕" on root steps and inline on each nested step. Click
-   reveals .v3-step-add-bar — the same horizontal pill toolbar we
-   used to show always-on, just hidden by default and unfolded on
-   demand. Click a pill → insert AFTER the step. */
-.v3-step-add-wrap {
-  position: relative;
-  display: inline-flex;
-}
+/* "+" button + horizontal in-flow add-bar. The "+" sits in
+   v3-step-actions next to "✕" on root steps and inline on each
+   nested step. Click reveals .v3-step-add-bar — which lives in
+   the DOM as the step's next sibling, so when visible it pushes
+   following steps down and the slot where the new step will land
+   is visually obvious. Click a pill → insert AFTER the step. */
 .v3-step-add-btn {
   width: 18px;
   height: 18px;
@@ -2169,24 +2166,18 @@ body[data-mode="edit"] #dag .b-atomic .node-badge { display: none; }
   background: rgba(110, 180, 255, 0.1);
 }
 .v3-step-add-bar {
-  position: absolute;
-  top: calc(100% + 2px);
-  right: 0;
-  z-index: 10;
   display: flex;
   flex-wrap: wrap;
-  justify-content: flex-end;
   gap: 4px;
-  max-width: 320px;
-  padding: 4px;
+  padding: 4px 6px;
+  margin: 2px 0;
   background: var(--bg-2);
-  border: 1px solid var(--line-mid);
+  border: 1px dashed var(--line-mid);
   border-radius: 4px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
 }
 .v3-step-add {
   font: 10px var(--font-mono);
-  background: var(--bg-2);
+  background: var(--bg-1);
   border: 1px solid var(--line-mid);
   color: var(--fg-1);
   padding: 2px 8px;
@@ -2194,31 +2185,37 @@ body[data-mode="edit"] #dag .b-atomic .node-badge { display: none; }
   cursor: pointer;
 }
 .v3-step-add:hover {
-  background: var(--bg-1);
+  background: var(--bg-0);
   border-color: #6bf;
   color: #9df;
 }
 
 /* Nested "+" lives inline on the step line, positioned next to the
    nested "✕". On hover-reveal the step line shows both. */
-.v3-step-add-wrap-nested {
+.v3-step-add-btn-nested {
   position: absolute;
   top: 0;
   right: 26px;  /* sits to the left of .v3-step-del-nested (right:4 + 18 + 4) */
   opacity: 0;
   transition: opacity 0.12s;
 }
-.v3-step-has-del:hover .v3-step-add-wrap-nested { opacity: 1; }
+.v3-step-has-del:hover .v3-step-add-btn-nested { opacity: 1; }
 /* Nested step line needs a bit more padding-right to host BOTH the
    "+" and the "✕" without overlap with the step text. */
 .v3-step-has-del { padding-right: 50px; }
 
 /* Empty-container affordance — used when an entry has no steps yet,
-   or a for/while body / case do is empty. Pads the row so its
-   popover lines up under the cursor. */
+   or a for/while body / case do is empty. The bar shows always
+   (no toggling "+") since there's no step to hang one on. */
 .v3-empty-add {
-  padding: 4px 4px;
   margin: 2px 0;
+}
+.v3-step-add-bar-empty {
+  /* Same flex-row pill layout as .v3-step-add-bar, just a slightly
+     more inviting border colour since this is the only call-to-add
+     in an empty container. */
+  border-style: solid;
+  border-color: #468;
 }
 .v3-step-add-btn-empty {
   width: auto;
