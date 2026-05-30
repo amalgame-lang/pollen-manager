@@ -1974,8 +1974,13 @@ body[data-mode="edit"] #dag .b-atomic .node-badge { display: none; }
 .v3-fc-set     text { fill: #fc8; }
 .v3-fc-if      rect { fill: #3a1a1a; stroke: #644; }
 .v3-fc-if      text { fill: #faa; font-weight: 600; }
-.v3-fc-case    rect { fill: #2a2418; stroke: #544; }
-.v3-fc-case    text { fill: #cba; }
+.v3-fc-case    rect {
+  fill: transparent;
+  stroke: #ba9;
+  stroke-width: 0.8;
+  rx: 11px; ry: 11px;
+}
+.v3-fc-case    text { fill: #cba; font-size: 10px; }
 .v3-fc-for     rect { fill: #1a3a1a; stroke: #464; }
 .v3-fc-for     text { fill: #afa; font-weight: 600; }
 .v3-fc-while   rect { fill: #3a2a1a; stroke: #654; }

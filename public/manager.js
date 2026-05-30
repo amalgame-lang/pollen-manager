@@ -1136,9 +1136,22 @@
       $svg.appendChild(path);
       const explicitLabel = ed.label || synthLabel;
       if (explicitLabel) {
-        const mid = pts[Math.floor(pts.length / 2)];
+        // Position label closer to where the edge meets the cluster
+        // boundary : for the enter edge that's near pts[last]
+        // (target inside the cluster), for the exit edge that's
+        // near pts[0] (source inside the cluster). Falls back to
+        // the midpoint for other edges.
+        let anchor;
+        if (synthLabel === '▶ each' && pts.length >= 2) {
+          anchor = pts[Math.max(0, pts.length - 2)];
+        } else if (synthLabel === '↪ after' && pts.length >= 2) {
+          anchor = pts[1];
+        } else {
+          anchor = pts[Math.floor(pts.length / 2)];
+        }
         const tx = document.createElementNS(ns, 'text');
-        tx.setAttribute('x', mid.x + 6); tx.setAttribute('y', mid.y - 2);
+        tx.setAttribute('x', anchor.x + 6);
+        tx.setAttribute('y', anchor.y - 2);
         tx.setAttribute('class', 'v3-fc-edge-label'
           + (synthLabel === '↪ after' ? ' v3-fc-edge-label-exit' : ''));
         tx.textContent = explicitLabel;
@@ -1159,7 +1172,8 @@
       const y = node.y - node.height / 2;
       const grp = document.createElementNS(ns, 'g');
       let cls = 'v3-fc-node v3-fc-' + (node.kind || 'unknown');
-      if (node.kind === 'goto' && byName.has(node.target)) {
+      const isClickable = node.kind === 'goto' && byName.has(node.target);
+      if (isClickable) {
         cls += ' v3-fc-clickable';
         grp.dataset.entry = node.target;
       }
@@ -1177,7 +1191,8 @@
       txt.setAttribute('x', node.width / 2);
       txt.setAttribute('y', node.height / 2 + 4);
       txt.setAttribute('text-anchor', 'middle');
-      txt.textContent = node.label;
+      // ↗ marker on goto-to-entry to signal "click to switch view"
+      txt.textContent = isClickable ? (node.label + ' ↗') : node.label;
       grp.appendChild(txt);
 
       $svg.appendChild(grp);
