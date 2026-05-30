@@ -2032,28 +2032,54 @@ body[data-mode="edit"] #dag .b-atomic .node-badge { display: none; }
   margin: 0 0 1px;
 }
 .v3-step-root:hover { background: rgba(255, 255, 255, 0.03); }
-.v3-step-del {
+.v3-step-actions {
   position: absolute;
   top: 1px;
   right: 4px;
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.v3-step-root:hover .v3-step-actions { opacity: 1; }
+.v3-step-del,
+.v3-step-move {
   width: 18px;
   height: 18px;
   padding: 0;
   font-size: 11px;
+  line-height: 1;
   background: transparent;
   border: 1px solid transparent;
   color: var(--fg-muted);
   border-radius: 3px;
   cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.12s;
 }
-.v3-step-root:hover .v3-step-del { opacity: 1; }
+.v3-step-move:hover:not(:disabled) {
+  color: #9df;
+  border-color: #468;
+  background: rgba(110, 180, 255, 0.1);
+}
+.v3-step-move:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
 .v3-step-del:hover {
   color: #f88;
   border-color: #844;
   background: rgba(255, 100, 100, 0.1);
 }
+/* Nested delete: lives inline on the step line itself, not in the
+   root-level actions bar. Hover-revealed per-line. */
+.v3-step-del-nested {
+  position: absolute;
+  top: 0;
+  right: 4px;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.v3-step-has-del { position: relative; padding-right: 26px; }
+.v3-step-has-del:hover .v3-step-del-nested { opacity: 1; }
 .v3-step-toolbar {
   display: flex;
   flex-wrap: wrap;
