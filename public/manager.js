@@ -32,6 +32,27 @@
   const SVG_NS = 'http://www.w3.org/2000/svg';
   const NODE_W = 110;
   const NODE_H = 46;
+
+  // ── Pollen v3 flowchart state ───────────────────────────────────
+  // selectedV3Entry : name of the entry currently rendered in #dag
+  // (chosen via the v3 sidebar — defaults to the first entry on
+  // load). dagreReady flips once /vendor/dagre.min.js finishes
+  // loading ; until then renderBlockDag's v3 branch shows a
+  // "Loading layout…" placeholder.
+  let selectedV3Entry = null;
+  let dagreReady = (typeof window !== 'undefined' && !!window.dagre);
+  if (!dagreReady) {
+    const s = document.createElement('script');
+    s.src = '/vendor/dagre.min.js';
+    s.onload = () => {
+      dagreReady = true;
+      // Re-render if a v3 workflow is already loaded.
+      if (typeof wf !== 'undefined' && wf && isV3Schema(wf)) {
+        renderBlockDag();
+      }
+    };
+    document.head.appendChild(s);
+  }
   // Phase 5.7.7 — bigger virtual canvas so big workflows have
   // breathing room. The SVG element stretches via CSS to fill the
   // viewport ; viewBox below matches these dims so the layout
@@ -825,34 +846,371 @@
     $svg.appendChild(g);
   }
 
+  // ── Pollen v3 flowchart (Phase 5 slice 2) ─────────────────────
+  // Builds a dagre graph from the selected entry's `do` tree and
+  // renders it as SVG <rect>+<text> nodes connected by <path>
+  // edges. Goto steps that target an entry name become a click-
+  // able terminal node ; same-entry anchors stay inline. for/while
+  // bodies get a dashed "next iter" back-edge to the loop header
+  // for visual feedback.
+  function buildEntryGraph(entry, actions) {
+    // compound graph (no multigraph — dagre 0.8.x's compound ranker
+    // is fragile with named edges, so we collapse duplicates in
+    // addEdge instead).
+    const g = new window.dagre.graphlib.Graph({ compound: true });
+    g.setGraph({ rankdir: 'TB', nodesep: 28, ranksep: 36,
+                 marginx: 16, marginy: 16 });
+    g.setDefaultEdgeLabel(() => ({}));
+
+    let nid = 0;
+    const eseen = new Set();
+    const newId = () => 'n' + (++nid);
+    // Stack of currently-open compound parents (loop containers).
+    // Every node created while a parent is on top of the stack gets
+    // setParent → dagre groups them inside one cluster, sizing the
+    // cluster's bounding box to fit. No more crossing back-edges.
+    const parentStack = [];
+    function addNode(id, attrs) {
+      g.setNode(id, attrs);
+      const p = parentStack[parentStack.length - 1];
+      if (p) g.setParent(id, p);
+    }
+    function addEdge(from, to, opts) {
+      const k = from + '→' + to;
+      if (eseen.has(k)) return;
+      eseen.add(k);
+      g.setEdge(from, to, opts || {});
+    }
+    function wText(s) { return Math.max(60, (s || '').length * 7 + 16); }
+
+    const headId = newId();
+    addNode(headId, { label: '▶ ' + (entry.name || '(unnamed)'),
+                      kind: 'head',
+                      width: wText(entry.name) + 24, height: 32 });
+
+    // walk(step, prev) — returns the list of exit node ids that
+    // need to be linked to whatever comes after.
+    function walk(step, prev) {
+      if (!step) return prev;
+      if (Array.isArray(step)) {
+        let cur = prev;
+        for (const s of step) cur = walk(s, cur);
+        return cur;
+      }
+      if (typeof step !== 'object') return prev;
+      const t = step.type;
+
+      if (t === 'if') {
+        const ifId = newId();
+        addNode(ifId, { label: 'if', kind: 'if',
+                        width: 56, height: 30 });
+        prev.forEach(p => addEdge(p, ifId));
+        const out = [];
+        (step.cases || []).forEach(c => {
+          const lbl = (c && c.else) ? 'else'
+                       : (c && c.when ? c.when : '?');
+          const cid = newId();
+          addNode(cid, { label: lbl, kind: 'case',
+                         width: wText(lbl), height: 26 });
+          addEdge(ifId, cid);
+          out.push(...walk(c && c.do, [cid]));
+        });
+        return out;
+      }
+
+      if (t === 'for' || t === 'while') {
+        // Loop body lives inside a compound container — dagre will
+        // size the cluster to fit its children, giving us a clear
+        // visual boundary. We deliberately keep NO edges to/from the
+        // cluster node itself ; dagre 0.8.x crashes during ranking
+        // when an edge crosses the parent/child boundary. Instead :
+        // - the outer prev connects DIRECTLY to the first body step
+        //   (edge crosses INTO the cluster, dagre handles cross-
+        //   boundary fine as long as the cluster isn't an endpoint).
+        // - we return bodyExits so the outer chain continues from
+        //   the last body step (edge crosses OUT of the cluster).
+        // The loop-back semantic is rendered as a ↻ decorator
+        // under the cluster — no back-edge in the graph.
+        const loopId = newId();
+        const lbl = t === 'for'
+          ? 'for ' + (step.var || '?') + ' in ' + (step.in || '?')
+          : 'while ' + (step.cond || '?');
+        // Padding leaves room for the cluster title bar (top) and
+        // the ↻ decorator (bottom) — dagre adds this around the
+        // children's bounding box.
+        addNode(loopId, { label: lbl, kind: t + '-cluster',
+                          paddingTop: 30, paddingBottom: 22,
+                          paddingLeft: 14, paddingRight: 14 });
+        parentStack.push(loopId);
+        const bodyExits = walk(step.do, prev);
+        parentStack.pop();
+        // If the body was empty, fall back to using prev as the
+        // exit so the chain isn't broken.
+        return bodyExits.length ? bodyExits : prev;
+      }
+
+      if (t === 'goto') {
+        const gid = newId();
+        const tgt = step.target || '?';
+        addNode(gid, { label: '→ ' + tgt, kind: 'goto',
+                       target: tgt,
+                       width: wText(tgt) + 24, height: 28 });
+        prev.forEach(p => addEdge(p, gid));
+        return [];          // goto is flow-terminal
+      }
+
+      if (t === 'anchor') {
+        const aid = newId();
+        const nm = step.name || '?';
+        addNode(aid, { label: '⚓ ' + nm, kind: 'anchor',
+                       anchorName: nm,
+                       width: wText(nm) + 24, height: 28 });
+        prev.forEach(p => addEdge(p, aid));
+        return [aid];
+      }
+
+      if (t === 'set') {
+        const sid = newId();
+        const lbl = 'set ' + (step.key || '?')
+                          + ' = ' + (step.value || '?');
+        addNode(sid, { label: lbl, kind: 'set',
+                       width: wText(lbl), height: 26 });
+        prev.forEach(p => addEdge(p, sid));
+        return [sid];
+      }
+
+      if (t === 'call') {
+        const cid = newId();
+        const a = step.action || '?';
+        const topic = actions[a] && actions[a].topic
+                        ? ' → ' + actions[a].topic : '';
+        let lbl = 'call ' + a + topic;
+        if (step.mode === 'all') lbl += ' (all)';
+        if (step.on_error) lbl += ' [' + step.on_error + ']';
+        addNode(cid, { label: lbl, kind: 'call',
+                       action: a, target: a,
+                       width: wText(lbl), height: 28 });
+        prev.forEach(p => addEdge(p, cid));
+        return [cid];
+      }
+
+      // unknown
+      const uid = newId();
+      addNode(uid, { label: '? ' + (t || ''), kind: 'unknown',
+                     width: wText(t) + 16, height: 26 });
+      prev.forEach(p => addEdge(p, uid));
+      return [uid];
+    }
+
+    walk(entry.do, [headId]);
+    return g;
+  }
+
+  function renderV3Flowchart() {
+    const ns = SVG_NS;
+    $svg.innerHTML = '';
+
+    function placeholder(msg) {
+      const txt = document.createElementNS(ns, 'text');
+      txt.setAttribute('x', '40'); txt.setAttribute('y', '60');
+      txt.setAttribute('fill', 'var(--fg-muted)');
+      txt.setAttribute('font-family', 'var(--font-mono)');
+      txt.setAttribute('font-size', '13');
+      txt.textContent = msg;
+      $svg.appendChild(txt);
+      $svg.setAttribute('viewBox', '0 0 600 120');
+    }
+
+    if (!dagreReady || !window.dagre) {
+      placeholder('Loading flowchart layout…');
+      return;
+    }
+
+    const entries = Array.isArray(wf && wf.entries) ? wf.entries : [];
+    if (!entries.length) {
+      placeholder('No entries in this v3 workflow.');
+      return;
+    }
+
+    // Auto-pick first entry on first render of a v3 workflow.
+    if (!selectedV3Entry
+        || !entries.some(e => e && e.name === selectedV3Entry)) {
+      selectedV3Entry = entries[0] && entries[0].name || null;
+    }
+    const entry = entries.find(e => e && e.name === selectedV3Entry);
+    if (!entry) { placeholder('Pick an entry from the sidebar.'); return; }
+
+    const actions = (wf.actions && typeof wf.actions === 'object')
+                      ? wf.actions : {};
+    const g = buildEntryGraph(entry, actions);
+    window.dagre.layout(g);
+    const gg = g.graph();
+    const W = (gg.width || 200) + 20;
+    const H = (gg.height || 100) + 20;
+    $svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+
+    // Arrow marker — defs come first so renderers see it.
+    const defs = document.createElementNS(ns, 'defs');
+    defs.innerHTML =
+      '<marker id="v3-arrow" viewBox="0 0 10 10" refX="9" refY="5" '
+      + 'markerWidth="6" markerHeight="6" orient="auto">'
+      + '<path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/>'
+      + '</marker>';
+    $svg.appendChild(defs);
+
+    function isCluster(k) {
+      return k === 'for-cluster' || k === 'while-cluster';
+    }
+
+    // Render clusters first (z-bottom) so edges + child nodes
+    // overlap correctly.
+    g.nodes().forEach(nid => {
+      const node = g.node(nid);
+      if (!isCluster(node.kind)) return;
+      const x = node.x - node.width / 2;
+      const y = node.y - node.height / 2;
+      const grp = document.createElementNS(ns, 'g');
+      grp.setAttribute('class', 'v3-fc-cluster v3-fc-' + node.kind);
+      grp.setAttribute('transform', 'translate(' + x + ',' + y + ')');
+
+      const rect = document.createElementNS(ns, 'rect');
+      rect.setAttribute('x', 0); rect.setAttribute('y', 0);
+      rect.setAttribute('width', node.width);
+      rect.setAttribute('height', node.height);
+      rect.setAttribute('rx', 7);
+      grp.appendChild(rect);
+
+      // Title bar at top.
+      const title = document.createElementNS(ns, 'text');
+      title.setAttribute('class', 'v3-fc-cluster-title');
+      title.setAttribute('x', 10);
+      title.setAttribute('y', 16);
+      title.textContent = node.label;
+      grp.appendChild(title);
+
+      // ↻ decorator at the bottom — visually denotes "loop back to
+      // the top of this body" without an extra edge.
+      const deco = document.createElementNS(ns, 'text');
+      deco.setAttribute('class', 'v3-fc-cluster-loopback');
+      deco.setAttribute('x', node.width / 2);
+      deco.setAttribute('y', node.height - 6);
+      deco.setAttribute('text-anchor', 'middle');
+      deco.textContent = '↻ loops back to top';
+      grp.appendChild(deco);
+
+      $svg.appendChild(grp);
+    });
+
+    // Edges above clusters, under regular nodes.
+    g.edges().forEach(e => {
+      const ed = g.edge(e);
+      const pts = ed.points;
+      if (!pts || !pts.length) return;
+      let d = 'M ' + pts[0].x + ' ' + pts[0].y;
+      for (let i = 1; i < pts.length; i++) {
+        d += ' L ' + pts[i].x + ' ' + pts[i].y;
+      }
+      const path = document.createElementNS(ns, 'path');
+      path.setAttribute('d', d);
+      let edgeCls = 'v3-fc-edge';
+      if (ed.dashed) edgeCls += ' v3-fc-edge-dashed';
+      // Detect cross-boundary edges (one endpoint inside a loop
+      // cluster, the other outside) — these are the visible
+      // "enter body" / "exit loop" edges that need extra labelling.
+      const srcParent = g.parent(e.v);
+      const tgtParent = g.parent(e.w);
+      let synthLabel = null;
+      if (srcParent !== tgtParent) {
+        if (!srcParent && tgtParent
+            && isCluster((g.node(tgtParent) || {}).kind)) {
+          edgeCls += ' v3-fc-edge-enter';
+          synthLabel = '▶ each';
+        } else if (!tgtParent && srcParent
+            && isCluster((g.node(srcParent) || {}).kind)) {
+          edgeCls += ' v3-fc-edge-exit';
+          synthLabel = '↪ after';
+        }
+      }
+      path.setAttribute('class', edgeCls);
+      path.setAttribute('marker-end', 'url(#v3-arrow)');
+      $svg.appendChild(path);
+      const explicitLabel = ed.label || synthLabel;
+      if (explicitLabel) {
+        const mid = pts[Math.floor(pts.length / 2)];
+        const tx = document.createElementNS(ns, 'text');
+        tx.setAttribute('x', mid.x + 6); tx.setAttribute('y', mid.y - 2);
+        tx.setAttribute('class', 'v3-fc-edge-label'
+          + (synthLabel === '↪ after' ? ' v3-fc-edge-label-exit' : ''));
+        tx.textContent = explicitLabel;
+        $svg.appendChild(tx);
+      }
+    });
+
+    // Build a name → entry index so goto/call clicks know whether
+    // their target is an entry we can switch to.
+    const byName = new Map();
+    entries.forEach(e => { if (e && e.name) byName.set(e.name, e); });
+
+    // Regular nodes (non-cluster) on top.
+    g.nodes().forEach(nid => {
+      const node = g.node(nid);
+      if (isCluster(node.kind)) return;
+      const x = node.x - node.width / 2;
+      const y = node.y - node.height / 2;
+      const grp = document.createElementNS(ns, 'g');
+      let cls = 'v3-fc-node v3-fc-' + (node.kind || 'unknown');
+      if (node.kind === 'goto' && byName.has(node.target)) {
+        cls += ' v3-fc-clickable';
+        grp.dataset.entry = node.target;
+      }
+      grp.setAttribute('class', cls);
+      grp.setAttribute('transform', 'translate(' + x + ',' + y + ')');
+
+      const rect = document.createElementNS(ns, 'rect');
+      rect.setAttribute('x', 0); rect.setAttribute('y', 0);
+      rect.setAttribute('width', node.width);
+      rect.setAttribute('height', node.height);
+      rect.setAttribute('rx', 5);
+      grp.appendChild(rect);
+
+      const txt = document.createElementNS(ns, 'text');
+      txt.setAttribute('x', node.width / 2);
+      txt.setAttribute('y', node.height / 2 + 4);
+      txt.setAttribute('text-anchor', 'middle');
+      txt.textContent = node.label;
+      grp.appendChild(txt);
+
+      $svg.appendChild(grp);
+    });
+  }
+
+  // Click on a clickable v3 flowchart node — switch the selected
+  // entry (re-renders #dag + updates the sidebar highlight).
+  if ($svg) {
+    $svg.addEventListener('click', (ev) => {
+      const grp = ev.target.closest('.v3-fc-clickable');
+      if (!grp || !$svg.contains(grp)) return;
+      const target = grp.dataset.entry;
+      if (!target) return;
+      selectV3Entry(target);
+    });
+  }
+
+  function selectV3Entry(name) {
+    selectedV3Entry = name;
+    renderBlockDag();
+    // Update sidebar active state.
+    document.querySelectorAll('.v3-side-entry').forEach(li => {
+      li.classList.toggle('v3-side-active',
+        li.dataset.target === name);
+    });
+  }
+
   function renderBlockDag() {
     nodeIndex.clear();
     $svg.innerHTML = '';
     if (isV3Schema(wf)) {
-      // v3 workflows use entries[] + goto/anchor — no `tree` to walk.
-      // Until the flowchart-with-arrows renderer lands (Phase 5 own
-      // session), draw a placeholder banner pointing users at the
-      // outline tab where the read-only summary lives.
-      const ns = 'http://www.w3.org/2000/svg';
-      const txt = document.createElementNS(ns, 'text');
-      txt.setAttribute('x', '40');
-      txt.setAttribute('y', '60');
-      txt.setAttribute('fill', 'var(--fg-muted)');
-      txt.setAttribute('font-family', 'var(--font-mono)');
-      txt.setAttribute('font-size', '13');
-      txt.textContent =
-        'Pollen v3 workflow — flowchart view coming in a follow-up.';
-      $svg.appendChild(txt);
-      const hint = document.createElementNS(ns, 'text');
-      hint.setAttribute('x', '40');
-      hint.setAttribute('y', '88');
-      hint.setAttribute('fill', 'var(--fg-muted)');
-      hint.setAttribute('font-family', 'var(--font-mono)');
-      hint.setAttribute('font-size', '11');
-      hint.textContent =
-        'Open the Tree tab for a read-only outline of entries[].';
-      $svg.appendChild(hint);
-      $svg.setAttribute('viewBox', '0 0 600 140');
+      renderV3Flowchart();
       return;
     }
     if (!wf || !wf.tree) return;
@@ -2579,13 +2937,18 @@
     }
 
     // Click handler on goto links — scroll to the entry (or anchor)
-    // card. Uses event delegation so it survives re-renders without
-    // having to track individual listeners.
+    // card. Sidebar rows also reuse .v3-goto-link, so this is the
+    // single place where v3 navigation is wired. When the click
+    // comes from the sidebar AND targets a known entry, we also
+    // switch the flowchart selection.
     root.addEventListener('click', (ev) => {
       const link = ev.target.closest('.v3-goto-link');
       if (!link || !root.contains(link)) return;
       const tgt = link.dataset.target;
       if (!tgt) return;
+      const fromSidebar = !!ev.target.closest('.v3-sidebar');
+      const isEntry = entries.some(e => e && e.name === tgt);
+      if (fromSidebar && isEntry) selectV3Entry(tgt);
       const dest = root.querySelector('#v3-entry-' + CSS.escape(tgt))
                 || root.querySelector('#v3-anchor-' + CSS.escape(tgt));
       if (dest) {
@@ -2594,6 +2957,16 @@
         setTimeout(() => dest.classList.remove('v3-flash'), 600);
       }
     });
+
+    // Highlight the currently-selected entry in the sidebar.
+    if (selectedV3Entry) {
+      sidebar.querySelectorAll('.v3-side-entry').forEach(li => {
+        if (li.dataset.target === selectedV3Entry) {
+          li.classList.add('v3-side-active');
+        }
+      });
+    }
+
     return root;
   }
 

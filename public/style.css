@@ -1938,3 +1938,90 @@ body[data-mode="edit"] #dag .b-atomic .node-badge { display: none; }
 }
 .v3-side-hidden { display: none; }
 .v3-main { min-width: 0; }
+.v3-side-active {
+  background: rgba(110, 180, 255, 0.15);
+  color: #9df;
+  font-weight: 600;
+}
+
+/* ── v3 flowchart (dagre layout in the main #dag SVG) ───────── */
+.v3-fc-edge {
+  fill: none;
+  stroke: #889;
+  stroke-width: 1.2;
+  color: #889;        /* used by marker fill: currentColor */
+}
+.v3-fc-edge-dashed { stroke-dasharray: 5 3; stroke: #a8a; color: #a8a; }
+.v3-fc-edge-label {
+  font: 9px var(--font-mono);
+  fill: var(--fg-muted);
+}
+.v3-fc-node rect {
+  stroke: var(--line-mid);
+  stroke-width: 1;
+  fill: var(--bg-1);
+}
+.v3-fc-node text {
+  font: 11px var(--font-mono);
+  fill: var(--fg-1);
+  pointer-events: none;
+}
+.v3-fc-head    rect { fill: #2a4a6a; stroke: #4a6a8a; }
+.v3-fc-head    text { fill: #cfe; font-weight: 600; }
+.v3-fc-call    rect { fill: #1a3040; stroke: #356; }
+.v3-fc-call    text { fill: #8cf; }
+.v3-fc-set     rect { fill: #3a2a18; stroke: #654; }
+.v3-fc-set     text { fill: #fc8; }
+.v3-fc-if      rect { fill: #3a1a1a; stroke: #644; }
+.v3-fc-if      text { fill: #faa; font-weight: 600; }
+.v3-fc-case    rect { fill: #2a2418; stroke: #544; }
+.v3-fc-case    text { fill: #cba; }
+.v3-fc-for     rect { fill: #1a3a1a; stroke: #464; }
+.v3-fc-for     text { fill: #afa; font-weight: 600; }
+.v3-fc-while   rect { fill: #3a2a1a; stroke: #654; }
+.v3-fc-while   text { fill: #fca; font-weight: 600; }
+.v3-fc-goto    rect { fill: #1a1a3a; stroke: #446; }
+.v3-fc-goto    text { fill: #aaf; }
+.v3-fc-anchor  rect { fill: #1a3a2a; stroke: #464; }
+.v3-fc-anchor  text { fill: #cfc; font-style: italic; }
+.v3-fc-clickable { cursor: pointer; }
+.v3-fc-clickable:hover rect {
+  stroke: #6bf;
+  stroke-width: 2;
+  filter: brightness(1.15);
+}
+
+/* ── v3 flowchart loop clusters (compound containers) ─────────── */
+.v3-fc-cluster rect {
+  fill: rgba(255, 200, 120, 0.06);
+  stroke: #fca;
+  stroke-width: 1;
+  stroke-dasharray: 6 3;
+}
+.v3-fc-while-cluster rect {
+  fill: rgba(255, 180, 120, 0.06);
+  stroke: #fcb;
+}
+.v3-fc-cluster-title {
+  font: 600 11px var(--font-mono);
+  fill: #fca;
+}
+.v3-fc-while-cluster .v3-fc-cluster-title { fill: #fcb; }
+.v3-fc-cluster-loopback {
+  font: italic 10px var(--font-mono);
+  fill: #fc8;
+  opacity: 0.85;
+}
+
+/* ── v3 flowchart : entry vs exit edge styling ────────────────── */
+.v3-fc-edge-enter {
+  stroke: #afa;
+  color: #afa;
+  stroke-width: 1.5;
+}
+.v3-fc-edge-exit {
+  stroke: #fca;
+  color: #fca;
+  stroke-width: 1.5;
+}
+.v3-fc-edge-label-exit { fill: #fc8; font-weight: 600; }
