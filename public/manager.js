@@ -1308,6 +1308,147 @@
     arr.push(makeV3StepTemplate(kind));
   }
 
+  // ── Entry-level helpers (slice 4d) ────────────────────────────
+  function getV3Entries(wf) {
+    if (!wf || !Array.isArray(wf.entries)) return null;
+    return wf.entries;
+  }
+  function pickV3EntryName(wf) {
+    const entries = getV3Entries(wf) || [];
+    const used = new Set(entries.map(e => e && e.name).filter(Boolean));
+    for (let i = 1; i < 1000; i++) {
+      const cand = 'new-entry-' + i;
+      if (!used.has(cand)) return cand;
+    }
+    return 'new-entry-' + Date.now();
+  }
+  function addV3Entry(wf) {
+    const entries = getV3Entries(wf);
+    if (!entries) return null;
+    const e = { name: pickV3EntryName(wf), do: [] };
+    entries.push(e);
+    return e;
+  }
+  function deleteV3Entry(wf, name) {
+    const entries = getV3Entries(wf);
+    if (!entries || !name) return;
+    const idx = entries.findIndex(e => e && e.name === name);
+    if (idx < 0) return;
+    entries.splice(idx, 1);
+  }
+  // Walk every step in every entry and call `visit(step)` on each
+  // object. Containers (if/for/while) recurse into their cases or
+  // `do`. Used by renameV3Entry to rewrite goto targets.
+  function walkV3Steps(wf, visit) {
+    const entries = getV3Entries(wf) || [];
+    function walk(s) {
+      if (!s) return;
+      if (Array.isArray(s)) { s.forEach(walk); return; }
+      if (typeof s !== 'object') return;
+      visit(s);
+      if (s.type === 'if' && Array.isArray(s.cases)) {
+        s.cases.forEach(c => { if (c) walk(c.do); });
+      } else if (s.type === 'for' || s.type === 'while') {
+        walk(s.do);
+      }
+    }
+    entries.forEach(e => { if (e) walk(e.do); });
+  }
+  function renameV3Entry(wf, oldName, newName) {
+    if (!wf || !oldName || !newName || oldName === newName) return false;
+    const entries = getV3Entries(wf);
+    if (!entries) return false;
+    if (entries.some(e => e && e.name === newName)) return false;  // duplicate
+    const target = entries.find(e => e && e.name === oldName);
+    if (!target) return false;
+    target.name = newName;
+    // Rewrite every goto.target that pointed at the old name. We
+    // can't disambiguate from same-named anchors here (rare in
+    // practice) — same-name collisions across entry-vs-anchor
+    // namespaces are a user-level problem.
+    walkV3Steps(wf, (s) => {
+      if (s.type === 'goto' && s.target === oldName) s.target = newName;
+    });
+    return true;
+  }
+
+  // Returns a <div class="v3-entry-form"> with name/on/params/returns
+  // inputs + Apply/Cancel. onDone(cancelled?) fires when the user is
+  // done; the caller is expected to markDirty + render on !cancelled.
+  function buildV3EntryEditor(entry, wf, onDone) {
+    const form = document.createElement('div');
+    form.className = 'v3-entry-form';
+    form.addEventListener('click', (ev) => ev.stopPropagation());
+
+    function field(labelTxt, value, placeholder) {
+      const row = document.createElement('div');
+      row.className = 'v3-step-field';
+      const lab = document.createElement('label');
+      lab.textContent = labelTxt;
+      const inp = document.createElement('input');
+      inp.type = 'text';
+      inp.value = (value == null) ? '' : String(value);
+      if (placeholder) inp.placeholder = placeholder;
+      row.appendChild(lab);
+      row.appendChild(inp);
+      form.appendChild(row);
+      return inp;
+    }
+    const nameInp    = field('name',    entry.name || '', 'entry-name');
+    const onInp      = field('on',      entry.on || '',   'bus topic (leave empty for callable)');
+    const paramsInp  = field('params',  Array.isArray(entry.params) ? entry.params.join(', ') : '',
+                             'dataset, mode');
+    const returnsInp = field('returns', entry.returns || '', 'state.summary');
+
+    const errRow = document.createElement('div');
+    errRow.className = 'v3-entry-form-err';
+    errRow.hidden = true;
+    form.appendChild(errRow);
+
+    const actions = document.createElement('div');
+    actions.className = 'v3-step-form-actions';
+    const apply = document.createElement('button');
+    apply.type = 'button';
+    apply.className = 'v3-step-apply';
+    apply.textContent = 'Apply';
+    apply.addEventListener('click', () => {
+      const newName = nameInp.value.trim();
+      const newOn = onInp.value.trim();
+      const newRet = returnsInp.value.trim();
+      const newParams = paramsInp.value.split(',')
+                                       .map(s => s.trim())
+                                       .filter(Boolean);
+      if (!newName) {
+        errRow.textContent = 'name required';
+        errRow.hidden = false;
+        return;
+      }
+      if (newName !== entry.name) {
+        const entries = getV3Entries(wf) || [];
+        if (entries.some(e => e !== entry && e && e.name === newName)) {
+          errRow.textContent = 'name already used by another entry';
+          errRow.hidden = false;
+          return;
+        }
+        // renameV3Entry walks the tree to rewrite goto targets too.
+        renameV3Entry(wf, entry.name, newName);
+      }
+      if (newOn) entry.on = newOn; else delete entry.on;
+      if (newRet) entry.returns = newRet; else delete entry.returns;
+      if (newParams.length) entry.params = newParams; else delete entry.params;
+      if (onDone) onDone(false);
+    });
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'v3-step-cancel';
+    cancel.textContent = 'Cancel';
+    cancel.addEventListener('click', () => { if (onDone) onDone(true); });
+    actions.appendChild(apply);
+    actions.appendChild(cancel);
+    form.appendChild(actions);
+    return form;
+  }
+
   // ── Inline step editor (slice 4b) ─────────────────────────────
   // Returns a <div class="v3-step-form"> containing input rows for
   // every editable field of `step` plus Apply / Cancel buttons.
@@ -3001,6 +3142,21 @@
       else grpDead.push(e);
     });
 
+    // Sidebar top: + Add entry button (slice 4d). Lives above
+    // search so it's the first thing you reach when starting a
+    // new workflow from scratch.
+    const addEntryBtn = document.createElement('button');
+    addEntryBtn.type = 'button';
+    addEntryBtn.className = 'v3-side-add-entry';
+    addEntryBtn.textContent = '+ Add entry';
+    addEntryBtn.title = 'Create a new empty entry';
+    addEntryBtn.addEventListener('click', () => {
+      addV3Entry(wf);
+      markDirty();
+      render();
+    });
+    sidebar.appendChild(addEntryBtn);
+
     const search = document.createElement('input');
     search.type = 'search';
     search.className = 'v3-search';
@@ -3275,7 +3431,51 @@
         inb.textContent = '← from ' + Array.from(new Set(callers)).join(', ');
         head.appendChild(inb);
       }
+      // Entry-level delete (slice 4d) — hover-revealed ✕, with
+      // a confirm() since dropping a 20-step entry by accident
+      // is more painful than dropping a single step.
+      const entryDel = document.createElement('button');
+      entryDel.type = 'button';
+      entryDel.className = 'v3-entry-del';
+      entryDel.textContent = '✕';
+      entryDel.title = 'Delete this entry';
+      entryDel.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        const stepCount = Array.isArray(e.do) ? e.do.length
+                        : (e.do ? 1 : 0);
+        const msg = 'Delete entry "' + (e.name || '(unnamed)') + '"'
+                  + (stepCount ? ' and its ' + stepCount + ' step(s)?' : '?');
+        if (!window.confirm(msg)) return;
+        deleteV3Entry(wf, e.name);
+        markDirty();
+        render();
+      });
+      head.appendChild(entryDel);
       card.appendChild(head);
+
+      // Entry-level inline editor — click anywhere on the head
+      // (except the delete ✕ and the inbound-from links) to
+      // toggle the form. Goto-link clicks bubble through the
+      // delegated handler at the bottom of this function so
+      // they keep their scroll-to-target behaviour.
+      const entryEditor = buildV3EntryEditor(e, wf, (cancelled) => {
+        if (cancelled) {
+          entryEditor.hidden = true;
+        } else {
+          markDirty();
+          render();
+        }
+      });
+      entryEditor.hidden = true;
+      entryEditor.classList.add('v3-entry-editor-inline');
+      card.appendChild(entryEditor);
+      head.classList.add('v3-entry-head-clickable');
+      head.addEventListener('click', (ev) => {
+        if (ev.target.closest('.v3-entry-form')) return;
+        if (ev.target.closest('.v3-goto-link')) return;
+        if (ev.target.closest('.v3-entry-del')) return;
+        entryEditor.hidden = !entryEditor.hidden;
+      });
 
       if (Array.isArray(e.params) && e.params.length) {
         const meta = document.createElement('div');
