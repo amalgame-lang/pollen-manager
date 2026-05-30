@@ -2175,6 +2175,10 @@ body[data-mode="edit"] #dag .b-atomic .node-badge { display: none; }
   border: 1px dashed var(--line-mid);
   border-radius: 4px;
 }
+/* The class selector above wins over the user-agent default
+   [hidden] { display: none }, so re-assert it explicitly to
+   make `bar.hidden = true` actually hide the bar. */
+.v3-step-add-bar[hidden] { display: none; }
 .v3-step-add {
   font: 10px var(--font-mono);
   background: var(--bg-1);
