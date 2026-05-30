@@ -2309,6 +2309,125 @@
     }
     entries.forEach(e => scanInbound(e && e.do, e && e.name));
 
+    // ── Layout : sidebar (groups + search) on the left, entry cards
+    // on the right. The sidebar is read-only navigation for now — the
+    // flowchart canvas lands in Phase 5.2+. Sidebar rows reuse the
+    // .v3-goto-link mechanism so the same delegated click handler at
+    // the bottom of this function handles scroll-to + flash.
+    const layout = document.createElement('div');
+    layout.className = 'v3-layout';
+    const sidebar = document.createElement('aside');
+    sidebar.className = 'v3-sidebar';
+    const mainCol = document.createElement('div');
+    mainCol.className = 'v3-main';
+    layout.appendChild(sidebar);
+    layout.appendChild(mainCol);
+    root.appendChild(layout);
+
+    // Group entries by trigger kind. An entry is "callable" when at
+    // least one goto references its name ; "dead" when neither bus-
+    // listening nor referenced (helpful surfacing of unreachable code).
+    const grpBus = [], grpCall = [], grpDead = [];
+    entries.forEach(e => {
+      if (!e || typeof e !== 'object') return;
+      if (e.on) grpBus.push(e);
+      else if (gotoTargets.has(e.name)) grpCall.push(e);
+      else grpDead.push(e);
+    });
+
+    const search = document.createElement('input');
+    search.type = 'search';
+    search.className = 'v3-search';
+    search.placeholder = 'Search entries…';
+    sidebar.appendChild(search);
+
+    function foldKey(g) { return 'pollen-v3-sidebar-fold-' + g; }
+    function isFolded(g) {
+      try { return localStorage.getItem(foldKey(g)) === '1'; }
+      catch (_) { return false; }
+    }
+    function setFolded(g, v) {
+      try { localStorage.setItem(foldKey(g), v ? '1' : '0'); }
+      catch (_) {}
+    }
+
+    function buildGroup(key, icon, label, items) {
+      const sec = document.createElement('section');
+      sec.className = 'v3-group v3-group-' + key;
+      sec.dataset.group = key;
+      if (isFolded(key)) sec.classList.add('v3-group-folded');
+
+      const hdr = document.createElement('header');
+      hdr.className = 'v3-group-head';
+      hdr.innerHTML = '<span class="v3-group-caret">▾</span>'
+        + '<span class="v3-group-icon">' + icon + '</span>'
+        + '<span class="v3-group-label">' + label + '</span>'
+        + '<span class="v3-group-count">' + items.length + '</span>';
+      hdr.addEventListener('click', () => {
+        const folded = sec.classList.toggle('v3-group-folded');
+        setFolded(key, folded);
+      });
+      sec.appendChild(hdr);
+
+      const list = document.createElement('ul');
+      list.className = 'v3-side-list';
+      items.forEach(e => {
+        const li = document.createElement('li');
+        li.className = 'v3-side-entry v3-goto-link';
+        li.dataset.target = e.name || '';
+        li.dataset.name = (e.name || '').toLowerCase();
+
+        const nm = document.createElement('span');
+        nm.className = 'v3-side-name';
+        nm.textContent = e.name || '(unnamed)';
+        li.appendChild(nm);
+
+        const callers = inboundByTarget.get(e.name);
+        const inb = callers ? new Set(callers).size : 0;
+        if (inb > 0) {
+          const cnt = document.createElement('span');
+          cnt.className = 'v3-side-count';
+          cnt.textContent = inb + ' in';
+          cnt.title = inb + ' inbound goto(s)';
+          li.appendChild(cnt);
+        }
+        list.appendChild(li);
+      });
+      if (!items.length) {
+        const li = document.createElement('li');
+        li.className = 'v3-side-empty';
+        li.textContent = '(none)';
+        list.appendChild(li);
+      }
+      sec.appendChild(list);
+      sidebar.appendChild(sec);
+      return sec;
+    }
+
+    buildGroup('bus',  '📡', 'Bus',      grpBus);
+    buildGroup('call', '🚩', 'Callable', grpCall);
+    buildGroup('dead', '⚠',  'Dead',     grpDead);
+
+    // Live filter — hide rows whose name doesn't contain the query.
+    // Empty groups still show their header so the user sees the
+    // structure ; the count badge updates to "0 / N".
+    search.addEventListener('input', () => {
+      const q = search.value.trim().toLowerCase();
+      sidebar.querySelectorAll('.v3-group').forEach(sec => {
+        let shown = 0, total = 0;
+        sec.querySelectorAll('.v3-side-entry').forEach(li => {
+          total++;
+          const hit = !q || li.dataset.name.indexOf(q) !== -1;
+          li.classList.toggle('v3-side-hidden', !hit);
+          if (hit) shown++;
+        });
+        const badge = sec.querySelector('.v3-group-count');
+        if (badge) {
+          badge.textContent = q ? (shown + ' / ' + total) : String(total);
+        }
+      });
+    });
+
     // Render a step into a chain of <div class="v3-step"> lines. Gotos
     // become clickable spans that scroll to the target's card/anchor.
     function buildSteps(step, depth, out) {
@@ -2449,14 +2568,14 @@
       }
       card.appendChild(body);
 
-      root.appendChild(card);
+      mainCol.appendChild(card);
     });
 
     if (!entries.length) {
       const empty = document.createElement('p');
       empty.className = 'v3-empty';
       empty.textContent = 'No entries.';
-      root.appendChild(empty);
+      mainCol.appendChild(empty);
     }
 
     // Click handler on goto links — scroll to the entry (or anchor)

@@ -1842,3 +1842,99 @@ body[data-mode="edit"] #dag .b-atomic .node-badge { display: none; }
   0%   { background: rgba(110, 180, 255, 0.35); }
   100% { background: transparent; }
 }
+
+/* ── v3 layout : sidebar (groups + search) + main entry cards ──── */
+.v3-layout {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  gap: 14px;
+  align-items: start;
+}
+.v3-sidebar {
+  position: sticky;
+  top: 8px;
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  border: 1px solid var(--line-mid);
+  border-radius: 6px;
+  background: var(--bg-1);
+  padding: 8px;
+}
+.v3-search {
+  width: 100%;
+  box-sizing: border-box;
+  font: 11px var(--font-mono);
+  background: var(--bg-0);
+  color: var(--fg-1);
+  border: 1px solid var(--line-mid);
+  border-radius: 4px;
+  padding: 5px 8px;
+  margin-bottom: 8px;
+}
+.v3-search:focus {
+  outline: none;
+  border-color: #6bf;
+}
+.v3-group { margin: 0 0 6px; }
+.v3-group-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  padding: 4px 4px;
+  border-radius: 4px;
+  font: 11px var(--font-mono);
+  user-select: none;
+}
+.v3-group-head:hover { background: var(--bg-2); }
+.v3-group-caret {
+  display: inline-block;
+  width: 10px;
+  color: var(--fg-muted);
+  transition: transform 0.12s;
+}
+.v3-group-folded .v3-group-caret { transform: rotate(-90deg); }
+.v3-group-icon { font-size: 12px; }
+.v3-group-label { flex: 1; }
+.v3-group-count {
+  font-size: 10px;
+  color: var(--fg-muted);
+  padding: 1px 6px;
+  background: var(--bg-2);
+  border-radius: 8px;
+}
+.v3-side-list {
+  list-style: none;
+  margin: 2px 0 4px;
+  padding: 0 0 0 16px;
+}
+.v3-group-folded .v3-side-list { display: none; }
+.v3-side-entry {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px;
+  border-radius: 3px;
+  font: 11px var(--font-mono);
+  cursor: pointer;
+  color: var(--fg-1);
+  text-decoration: none;
+}
+.v3-side-entry:hover { background: var(--bg-2); color: #9df; }
+.v3-side-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.v3-side-count {
+  font-size: 9px;
+  color: var(--fg-muted);
+  background: var(--bg-0);
+  padding: 0 5px;
+  border-radius: 6px;
+  border: 1px solid var(--line-mid);
+}
+.v3-side-empty {
+  font: italic 10px var(--font-mono);
+  color: var(--fg-muted);
+  padding: 2px 6px;
+  list-style: none;
+}
+.v3-side-hidden { display: none; }
+.v3-main { min-width: 0; }
