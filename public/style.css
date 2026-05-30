@@ -1757,3 +1757,54 @@ li.tree-node.selected > .block-seq-root > .seq-step.selected > .block {
 }
 /* Hide badge in Edit mode (counts only matter while watching). */
 body[data-mode="edit"] #dag .b-atomic .node-badge { display: none; }
+
+/* ── Pollen v3 read-only view (Phase 5 minimal) ───────────────── */
+.v3-entries { padding: 8px 12px; }
+.v3-banner {
+  font: 11px var(--font-mono);
+  color: var(--fg-muted);
+  background: var(--bg-2);
+  border: 1px solid var(--line-mid);
+  border-radius: 4px;
+  padding: 6px 10px;
+  margin-bottom: 10px;
+}
+.v3-entry {
+  border: 1px solid var(--line-mid);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin: 0 0 10px;
+  background: var(--bg-1);
+}
+.v3-entry-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.v3-entry-head strong { font: 13px var(--font-mono); }
+.v3-badge {
+  font: 10px var(--font-mono);
+  padding: 1px 6px;
+  border-radius: 10px;
+  border: 1px solid var(--line-mid);
+}
+.v3-badge-bus      { background: #2a4a6a; color: #cfe; }
+.v3-badge-callable { background: #4a3a6a; color: #ecf; }
+.v3-badge-warn     { background: #6a3a3a; color: #fcc; }
+.v3-entry-meta {
+  font: 11px var(--font-mono);
+  color: var(--fg-muted);
+  margin: 2px 0;
+}
+.v3-entry-body {
+  font: 11px var(--font-mono);
+  background: var(--bg-0);
+  border: 1px solid var(--line-mid);
+  border-radius: 4px;
+  padding: 6px 8px;
+  margin: 4px 0 0;
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+.v3-empty { color: var(--fg-muted); font-style: italic; }

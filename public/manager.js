@@ -828,6 +828,33 @@
   function renderBlockDag() {
     nodeIndex.clear();
     $svg.innerHTML = '';
+    if (isV3Schema(wf)) {
+      // v3 workflows use entries[] + goto/anchor — no `tree` to walk.
+      // Until the flowchart-with-arrows renderer lands (Phase 5 own
+      // session), draw a placeholder banner pointing users at the
+      // outline tab where the read-only summary lives.
+      const ns = 'http://www.w3.org/2000/svg';
+      const txt = document.createElementNS(ns, 'text');
+      txt.setAttribute('x', '40');
+      txt.setAttribute('y', '60');
+      txt.setAttribute('fill', 'var(--fg-muted)');
+      txt.setAttribute('font-family', 'var(--font-mono)');
+      txt.setAttribute('font-size', '13');
+      txt.textContent =
+        'Pollen v3 workflow — flowchart view coming in a follow-up.';
+      $svg.appendChild(txt);
+      const hint = document.createElementNS(ns, 'text');
+      hint.setAttribute('x', '40');
+      hint.setAttribute('y', '88');
+      hint.setAttribute('fill', 'var(--fg-muted)');
+      hint.setAttribute('font-family', 'var(--font-mono)');
+      hint.setAttribute('font-size', '11');
+      hint.textContent =
+        'Open the Tree tab for a read-only outline of entries[].';
+      $svg.appendChild(hint);
+      $svg.setAttribute('viewBox', '0 0 600 140');
+      return;
+    }
     if (!wf || !wf.tree) return;
     const m = measureBlock(wf.tree);
     const ORIG_X = 40, ORIG_Y = 40;
@@ -1115,6 +1142,16 @@
     if ($migrate) {
       const hasV1Next = wf && wf.nodes && Object.values(wf.nodes).some(n => Array.isArray(n.next));
       $migrate.hidden = !!wf && (!!wf.schema || !!wf.tree || !hasV1Next);
+    }
+
+    // Pollen v3 — flat entries[] model. No `tree` ; route to the v3
+    // read-only renderer instead.
+    if (isV3Schema(wf)) {
+      $empty.hidden = true;
+      $outline.hidden = false;
+      $outline.innerHTML = '';
+      $outline.appendChild(renderEntriesV3(wf));
+      return;
     }
 
     if (!wf || !wf.tree || typeof wf.tree !== 'object') {
@@ -2208,6 +2245,161 @@
     return li;
   }
 
+  // ── Pollen v3 — read-only entries view (Phase 5 minimal) ──────
+  //
+  // The v3 schema is `{schema: "pollen/v3", actions: {…},
+  // entries: [{name, on?, params?, returns?, do}]}`. Until the
+  // flowchart-with-arrows refactor lands (own session — see spec
+  // §"UI architecture"), render a static outline so the manager
+  // doesn't appear broken when a v3 file is loaded.
+  //
+  // For each entry we show :
+  //   - the name + "bus" badge if `on:` is present, "callable"
+  //     badge if it isn't (purely goto-reachable)
+  //   - the `on:` topic if present, params + returns if declared
+  //   - a one-line summary of every step in `do`, indented for
+  //     nested for/while/if bodies
+  //   - anchor names collected from the do-tree, with an "← inbound
+  //     goto" hint where applicable
+  function renderEntriesV3(wf) {
+    const root = document.createElement('div');
+    root.className = 'v3-entries';
+    const banner = document.createElement('div');
+    banner.className = 'v3-banner';
+    banner.textContent = 'Pollen v3 workflow — read-only view '
+      + '(flowchart editor coming in a follow-up).';
+    root.appendChild(banner);
+
+    const entries = Array.isArray(wf.entries) ? wf.entries : [];
+    const actions = (wf.actions && typeof wf.actions === 'object')
+                      ? wf.actions : {};
+
+    // First pass : collect goto targets so we can mark which entries
+    // and anchors are referenced.
+    const gotoTargets = new Set();
+    function scanGotos(step) {
+      if (!step) return;
+      if (Array.isArray(step)) { step.forEach(scanGotos); return; }
+      if (typeof step !== 'object') return;
+      if (step.type === 'goto' && step.target) gotoTargets.add(step.target);
+      if (step.do) scanGotos(step.do);
+      if (step.type === 'if' && Array.isArray(step.cases)) {
+        step.cases.forEach(c => scanGotos(c && c.do));
+      }
+    }
+    entries.forEach(e => scanGotos(e && e.do));
+
+    // Render one summary line per step, with depth-based indent.
+    function summarizeStep(step, depth) {
+      if (!step) return [];
+      if (Array.isArray(step)) {
+        return step.flatMap(s => summarizeStep(s, depth));
+      }
+      if (typeof step !== 'object') return [];
+      const pad = '  '.repeat(depth);
+      let line = pad;
+      const t = step.type || '?';
+      if (t === 'call') {
+        const a = step.action || '?';
+        const mode = step.mode === 'all' ? ' (mode=all)' : '';
+        const oe = step.on_error ? ' on_error=' + step.on_error : '';
+        const topic = actions[a] && actions[a].topic
+                        ? ' → ' + actions[a].topic : '';
+        line += 'call ' + a + topic + mode + oe;
+      } else if (t === 'set') {
+        line += 'set ' + (step.key || '?') + ' = ' + (step.value || '?');
+      } else if (t === 'if') {
+        line += 'if';
+        const out = [line];
+        (step.cases || []).forEach((c, i) => {
+          if (c && c.else) {
+            out.push(pad + '  else:');
+          } else {
+            out.push(pad + '  when ' + (c && c.when ? c.when : '?') + ':');
+          }
+          out.push(...summarizeStep(c && c.do, depth + 2));
+        });
+        return out;
+      } else if (t === 'for') {
+        line += 'for ' + (step.var || '?') + ' in ' + (step.in || '?');
+        const out = [line];
+        out.push(...summarizeStep(step.do, depth + 1));
+        return out;
+      } else if (t === 'while') {
+        line += 'while ' + (step.cond || '?');
+        if (step.maxIter) line += ' (maxIter=' + step.maxIter + ')';
+        const out = [line];
+        out.push(...summarizeStep(step.do, depth + 1));
+        return out;
+      } else if (t === 'goto') {
+        line += 'goto ' + (step.target || '?');
+        if (Array.isArray(step.args) && step.args.length) {
+          line += '(' + step.args.join(', ') + ')';
+        }
+        if (step.bind) line += ' → ' + step.bind;
+      } else if (t === 'anchor') {
+        const inbound = gotoTargets.has(step.name) ? ' ← inbound goto' : '';
+        line += 'anchor: ' + (step.name || '?') + inbound;
+      } else {
+        line += t + ' ?';
+      }
+      return [line];
+    }
+
+    entries.forEach(e => {
+      if (!e || typeof e !== 'object') return;
+      const card = document.createElement('div');
+      card.className = 'v3-entry';
+
+      const head = document.createElement('div');
+      head.className = 'v3-entry-head';
+      const name = document.createElement('strong');
+      name.textContent = e.name || '(unnamed)';
+      head.appendChild(name);
+
+      const badge = document.createElement('span');
+      badge.className = 'v3-badge';
+      if (e.on) {
+        badge.textContent = 'bus: ' + e.on;
+        badge.classList.add('v3-badge-bus');
+      } else {
+        badge.textContent = gotoTargets.has(e.name) ? 'callable' : 'unreachable';
+        badge.classList.add(gotoTargets.has(e.name) ? 'v3-badge-callable'
+                                                    : 'v3-badge-warn');
+      }
+      head.appendChild(badge);
+      card.appendChild(head);
+
+      if (Array.isArray(e.params) && e.params.length) {
+        const meta = document.createElement('div');
+        meta.className = 'v3-entry-meta';
+        meta.textContent = 'params: (' + e.params.join(', ') + ')';
+        card.appendChild(meta);
+      }
+      if (e.returns) {
+        const meta = document.createElement('div');
+        meta.className = 'v3-entry-meta';
+        meta.textContent = 'returns: ' + e.returns;
+        card.appendChild(meta);
+      }
+
+      const body = document.createElement('pre');
+      body.className = 'v3-entry-body';
+      body.textContent = summarizeStep(e.do, 0).join('\n') || '(empty)';
+      card.appendChild(body);
+
+      root.appendChild(card);
+    });
+
+    if (!entries.length) {
+      const empty = document.createElement('p');
+      empty.className = 'v3-empty';
+      empty.textContent = 'No entries.';
+      root.appendChild(empty);
+    }
+    return root;
+  }
+
   function refreshRaw() {
     // Show v2 workflows in their array-of-nodes form so what the
     // user sees in Raw JSON matches what gets written to disk.
@@ -2507,6 +2699,14 @@
   function isV2Schema(w) {
     return w && typeof w.schema === 'string'
         && w.schema.indexOf('workflow-tree/') === 0;
+  }
+  // Pollen v3 (amalgame-pollen v0.2.0+) uses a flat entries[] model
+  // with anchors + goto. Full flowchart-with-arrows renderer + sidebar
+  // come later (own session — the spec's Phase 5 refactor) ; for now
+  // render a read-only entries list so the manager doesn't appear
+  // broken when someone opens a v3 file.
+  function isV3Schema(w) {
+    return w && w.schema === 'pollen/v3';
   }
   function nodesArrayToObject(arr) {
     const out = {};
