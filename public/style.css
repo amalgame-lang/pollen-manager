@@ -1785,8 +1785,52 @@ body[data-mode="edit"] #dag .b-atomic .node-badge { display: none; }
   align-items: baseline;
   gap: 8px;
   margin-bottom: 4px;
+  position: relative;
 }
 .v3-entry-head strong { font: 13px var(--font-mono); }
+.v3-entry-head-clickable { cursor: pointer; }
+.v3-entry-head-clickable:hover strong { color: #9df; }
+.v3-entry-del {
+  position: absolute;
+  top: -2px;
+  right: 0;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  font-size: 12px;
+  line-height: 1;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--fg-muted);
+  border-radius: 3px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.v3-entry:hover .v3-entry-del { opacity: 1; }
+.v3-entry-del:hover {
+  color: #f88;
+  border-color: #844;
+  background: rgba(255, 100, 100, 0.1);
+}
+
+/* Inline entry editor — same form skeleton as the step editor
+   (reuses .v3-step-field / .v3-step-form-actions / Apply+Cancel
+   button classes) but with a distinct outer container so it
+   sits inside the entry card, not a step row. */
+.v3-entry-form {
+  padding: 8px 10px;
+  margin: 4px 0;
+  background: var(--bg-2);
+  border: 1px solid var(--line-mid);
+  border-radius: 4px;
+  cursor: default;
+}
+.v3-entry-form-err {
+  font: 10px var(--font-mono);
+  color: #f88;
+  margin: 4px 0 0;
+}
 .v3-badge {
   font: 10px var(--font-mono);
   padding: 1px 6px;
@@ -1863,6 +1907,24 @@ body[data-mode="edit"] #dag .b-atomic .node-badge { display: none; }
   border-radius: 6px;
   background: var(--bg-1);
   padding: 8px;
+}
+.v3-side-add-entry {
+  width: 100%;
+  box-sizing: border-box;
+  font: 11px var(--font-mono);
+  background: var(--bg-0);
+  color: #9df;
+  border: 1px dashed var(--line-mid);
+  border-radius: 4px;
+  padding: 5px 8px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s;
+}
+.v3-side-add-entry:hover {
+  color: #cef;
+  border-color: #6bf;
+  border-style: solid;
 }
 .v3-search {
   width: 100%;
