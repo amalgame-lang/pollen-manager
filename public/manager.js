@@ -40,6 +40,10 @@
   // loading ; until then renderBlockDag's v3 branch shows a
   // "Loading layout…" placeholder.
   let selectedV3Entry = null;
+  // Snapshot of cross-entry edges produced by renderEntriesV3 so
+  // the flowchart renderer can distinguish goto nodes that leave
+  // the current entry from goto nodes that stay local (anchor-only).
+  let v3CrossEntryCtx = null;
   let dagreReady = (typeof window !== 'undefined' && !!window.dagre);
   if (!dagreReady) {
     const s = document.createElement('script');
@@ -1164,6 +1168,16 @@
     const byName = new Map();
     entries.forEach(e => { if (e && e.name) byName.set(e.name, e); });
 
+    // Cross-entry detection helper — a goto is "cross" when its
+    // target resolves to a DIFFERENT entry than the one currently
+    // rendered. Local goto-to-own-anchor stays as a regular goto.
+    const cur = v3CrossEntryCtx && v3CrossEntryCtx.currentEntry();
+    function isCrossEntryGoto(node) {
+      if (node.kind !== 'goto' || !node.target || !v3CrossEntryCtx) return false;
+      const dest = v3CrossEntryCtx.resolveTargetEntry(node.target);
+      return dest && dest !== cur;
+    }
+
     // Regular nodes (non-cluster) on top.
     g.nodes().forEach(nid => {
       const node = g.node(nid);
@@ -1177,6 +1191,7 @@
         cls += ' v3-fc-clickable';
         grp.dataset.entry = node.target;
       }
+      if (isCrossEntryGoto(node)) cls += ' v3-fc-cross';
       grp.setAttribute('class', cls);
       grp.setAttribute('transform', 'translate(' + x + ',' + y + ')');
 
@@ -2682,6 +2697,66 @@
     }
     entries.forEach(e => scanInbound(e && e.do, e && e.name));
 
+    // Map every anchor name → the entry that hosts it. Used to
+    // detect cross-entry gotos that jump INTO another entry via an
+    // anchor (not just direct entry-name targets).
+    const anchorOwner = new Map();
+    function scanAnchors(step, ownerEntry) {
+      if (!step) return;
+      if (Array.isArray(step)) { step.forEach(s => scanAnchors(s, ownerEntry)); return; }
+      if (typeof step !== 'object') return;
+      if (step.type === 'anchor' && step.name) {
+        anchorOwner.set(step.name, ownerEntry);
+      }
+      if (step.do) scanAnchors(step.do, ownerEntry);
+      if (step.type === 'if' && Array.isArray(step.cases)) {
+        step.cases.forEach(c => scanAnchors(c && c.do, ownerEntry));
+      }
+    }
+    entries.forEach(e => scanAnchors(e && e.do, e && e.name));
+    const entryNames = new Set(entries.map(e => e && e.name).filter(Boolean));
+
+    // Resolve a goto target to the entry it ultimately lands in :
+    // - target IS an entry name → that entry
+    // - target IS an anchor → entry that hosts the anchor
+    // - otherwise → null (dangling reference)
+    function resolveTargetEntry(targetName) {
+      if (!targetName) return null;
+      if (entryNames.has(targetName)) return targetName;
+      return anchorOwner.get(targetName) || null;
+    }
+
+    // Per-entry list of OUTBOUND cross-entry jumps (set so we
+    // de-dup multiple gotos to the same target). Used to surface
+    // "→ X" hints in the sidebar rows + dashed border on the
+    // flowchart goto nodes that leave the entry.
+    const outboundByEntry = new Map();
+    function scanOutbound(step, fromEntry) {
+      if (!step) return;
+      if (Array.isArray(step)) { step.forEach(s => scanOutbound(s, fromEntry)); return; }
+      if (typeof step !== 'object') return;
+      if (step.type === 'goto' && step.target) {
+        const toEntry = resolveTargetEntry(step.target);
+        if (toEntry && toEntry !== fromEntry) {
+          if (!outboundByEntry.has(fromEntry)) {
+            outboundByEntry.set(fromEntry, new Set());
+          }
+          outboundByEntry.get(fromEntry).add(toEntry);
+        }
+      }
+      if (step.do) scanOutbound(step.do, fromEntry);
+      if (step.type === 'if' && Array.isArray(step.cases)) {
+        step.cases.forEach(c => scanOutbound(c && c.do, fromEntry));
+      }
+    }
+    entries.forEach(e => scanOutbound(e && e.do, e && e.name));
+
+    // Stash the per-render cross-entry info where renderV3Flowchart
+    // can read it (so the flowchart can style cross-entry goto
+    // nodes distinctly without re-scanning the workflow).
+    v3CrossEntryCtx = { outboundByEntry, resolveTargetEntry,
+                         currentEntry: () => selectedV3Entry };
+
     // ── Layout : sidebar (groups + search) on the left, entry cards
     // on the right. The sidebar is read-only navigation for now — the
     // flowchart canvas lands in Phase 5.2+. Sidebar rows reuse the
@@ -2750,10 +2825,12 @@
         li.dataset.target = e.name || '';
         li.dataset.name = (e.name || '').toLowerCase();
 
+        const nameRow = document.createElement('div');
+        nameRow.className = 'v3-side-row';
         const nm = document.createElement('span');
         nm.className = 'v3-side-name';
         nm.textContent = e.name || '(unnamed)';
-        li.appendChild(nm);
+        nameRow.appendChild(nm);
 
         const callers = inboundByTarget.get(e.name);
         const inb = callers ? new Set(callers).size : 0;
@@ -2762,7 +2839,21 @@
           cnt.className = 'v3-side-count';
           cnt.textContent = inb + ' in';
           cnt.title = inb + ' inbound goto(s)';
-          li.appendChild(cnt);
+          nameRow.appendChild(cnt);
+        }
+        li.appendChild(nameRow);
+
+        // Long-distance outbound : show "→ X, Y" hint listing the
+        // entries this one jumps into (entry name or anchor that
+        // resolves to another entry). Helps the operator trace the
+        // call topology at a glance.
+        const out = outboundByEntry.get(e.name);
+        if (out && out.size) {
+          const hint = document.createElement('div');
+          hint.className = 'v3-side-out';
+          hint.textContent = '→ ' + Array.from(out).join(', ');
+          hint.title = 'Long-distance gotos: ' + Array.from(out).join(', ');
+          li.appendChild(hint);
         }
         list.appendChild(li);
       });
