@@ -54,4 +54,4 @@ tag = "v0.13.3"
 
 [dependencies.pollen]
 git = "github.com/amalgame-lang/amalgame-pollen"
-tag = "v0.1.12"
+tag = "v0.2.0"
