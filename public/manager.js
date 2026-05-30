@@ -2289,67 +2289,109 @@
     }
     entries.forEach(e => scanGotos(e && e.do));
 
-    // Render one summary line per step, with depth-based indent.
-    function summarizeStep(step, depth) {
-      if (!step) return [];
-      if (Array.isArray(step)) {
-        return step.flatMap(s => summarizeStep(s, depth));
+    // Reverse index : anchor name → list of (entryName, gotoIdx) so
+    // the inbound-goto hint on anchors / entries can list callers.
+    const inboundByTarget = new Map();
+    function scanInbound(step, fromEntry) {
+      if (!step) return;
+      if (Array.isArray(step)) { step.forEach(s => scanInbound(s, fromEntry)); return; }
+      if (typeof step !== 'object') return;
+      if (step.type === 'goto' && step.target) {
+        if (!inboundByTarget.has(step.target)) {
+          inboundByTarget.set(step.target, []);
+        }
+        inboundByTarget.get(step.target).push(fromEntry);
       }
-      if (typeof step !== 'object') return [];
-      const pad = '  '.repeat(depth);
-      let line = pad;
+      if (step.do) scanInbound(step.do, fromEntry);
+      if (step.type === 'if' && Array.isArray(step.cases)) {
+        step.cases.forEach(c => scanInbound(c && c.do, fromEntry));
+      }
+    }
+    entries.forEach(e => scanInbound(e && e.do, e && e.name));
+
+    // Render a step into a chain of <div class="v3-step"> lines. Gotos
+    // become clickable spans that scroll to the target's card/anchor.
+    function buildSteps(step, depth, out) {
+      if (!step) return;
+      if (Array.isArray(step)) { step.forEach(s => buildSteps(s, depth, out)); return; }
+      if (typeof step !== 'object') return;
       const t = step.type || '?';
+      const line = document.createElement('div');
+      line.className = 'v3-step v3-step-' + t;
+      line.style.paddingLeft = (depth * 18) + 'px';
+
       if (t === 'call') {
         const a = step.action || '?';
-        const mode = step.mode === 'all' ? ' (mode=all)' : '';
-        const oe = step.on_error ? ' on_error=' + step.on_error : '';
         const topic = actions[a] && actions[a].topic
                         ? ' → ' + actions[a].topic : '';
-        line += 'call ' + a + topic + mode + oe;
+        let txt = 'call ' + a + topic;
+        if (step.mode === 'all') txt += ' (mode=all)';
+        if (step.on_error) txt += ' on_error=' + step.on_error;
+        line.textContent = txt;
       } else if (t === 'set') {
-        line += 'set ' + (step.key || '?') + ' = ' + (step.value || '?');
+        line.textContent = 'set ' + (step.key || '?') + ' = ' + (step.value || '?');
       } else if (t === 'if') {
-        line += 'if';
-        const out = [line];
-        (step.cases || []).forEach((c, i) => {
-          if (c && c.else) {
-            out.push(pad + '  else:');
-          } else {
-            out.push(pad + '  when ' + (c && c.when ? c.when : '?') + ':');
-          }
-          out.push(...summarizeStep(c && c.do, depth + 2));
+        line.textContent = 'if';
+        out.push(line);
+        (step.cases || []).forEach(c => {
+          const caseLine = document.createElement('div');
+          caseLine.className = 'v3-step v3-step-case';
+          caseLine.style.paddingLeft = ((depth + 1) * 18) + 'px';
+          caseLine.textContent = (c && c.else)
+                                   ? 'else:'
+                                   : 'when ' + (c && c.when ? c.when : '?') + ':';
+          out.push(caseLine);
+          buildSteps(c && c.do, depth + 2, out);
         });
-        return out;
+        return;
       } else if (t === 'for') {
-        line += 'for ' + (step.var || '?') + ' in ' + (step.in || '?');
-        const out = [line];
-        out.push(...summarizeStep(step.do, depth + 1));
-        return out;
+        line.textContent = 'for ' + (step.var || '?') + ' in ' + (step.in || '?');
+        out.push(line);
+        buildSteps(step.do, depth + 1, out);
+        return;
       } else if (t === 'while') {
-        line += 'while ' + (step.cond || '?');
-        if (step.maxIter) line += ' (maxIter=' + step.maxIter + ')';
-        const out = [line];
-        out.push(...summarizeStep(step.do, depth + 1));
-        return out;
+        let txt = 'while ' + (step.cond || '?');
+        if (step.maxIter) txt += ' (maxIter=' + step.maxIter + ')';
+        line.textContent = txt;
+        out.push(line);
+        buildSteps(step.do, depth + 1, out);
+        return;
       } else if (t === 'goto') {
-        line += 'goto ' + (step.target || '?');
+        line.appendChild(document.createTextNode('goto '));
+        const link = document.createElement('span');
+        link.className = 'v3-goto-link';
+        link.textContent = step.target || '?';
+        link.dataset.target = step.target || '';
+        link.title = 'jump to target';
+        line.appendChild(link);
         if (Array.isArray(step.args) && step.args.length) {
-          line += '(' + step.args.join(', ') + ')';
+          line.appendChild(document.createTextNode('(' + step.args.join(', ') + ')'));
         }
-        if (step.bind) line += ' → ' + step.bind;
+        if (step.bind) {
+          line.appendChild(document.createTextNode(' → ' + step.bind));
+        }
       } else if (t === 'anchor') {
-        const inbound = gotoTargets.has(step.name) ? ' ← inbound goto' : '';
-        line += 'anchor: ' + (step.name || '?') + inbound;
+        const nm = step.name || '?';
+        line.id = 'v3-anchor-' + nm;
+        line.appendChild(document.createTextNode('anchor: ' + nm));
+        const callers = inboundByTarget.get(nm);
+        if (callers && callers.length) {
+          const hint = document.createElement('span');
+          hint.className = 'v3-anchor-hint';
+          hint.textContent = ' ← from ' + Array.from(new Set(callers)).join(', ');
+          line.appendChild(hint);
+        }
       } else {
-        line += t + ' ?';
+        line.textContent = t + ' ?';
       }
-      return [line];
+      out.push(line);
     }
 
     entries.forEach(e => {
       if (!e || typeof e !== 'object') return;
       const card = document.createElement('div');
       card.className = 'v3-entry';
+      if (e.name) card.id = 'v3-entry-' + e.name;
 
       const head = document.createElement('div');
       head.className = 'v3-entry-head';
@@ -2368,6 +2410,16 @@
                                                     : 'v3-badge-warn');
       }
       head.appendChild(badge);
+
+      // Inbound goto callers, if any — surfaces dual-mode entries and
+      // shared callees (multi-entry → one shared-pipeline pattern).
+      const callers = inboundByTarget.get(e.name);
+      if (callers && callers.length) {
+        const inb = document.createElement('span');
+        inb.className = 'v3-anchor-hint';
+        inb.textContent = '← from ' + Array.from(new Set(callers)).join(', ');
+        head.appendChild(inb);
+      }
       card.appendChild(head);
 
       if (Array.isArray(e.params) && e.params.length) {
@@ -2383,9 +2435,18 @@
         card.appendChild(meta);
       }
 
-      const body = document.createElement('pre');
+      const body = document.createElement('div');
       body.className = 'v3-entry-body';
-      body.textContent = summarizeStep(e.do, 0).join('\n') || '(empty)';
+      const steps = [];
+      buildSteps(e.do, 0, steps);
+      if (steps.length === 0) {
+        const emptyMsg = document.createElement('div');
+        emptyMsg.className = 'v3-empty';
+        emptyMsg.textContent = '(empty)';
+        body.appendChild(emptyMsg);
+      } else {
+        steps.forEach(s => body.appendChild(s));
+      }
       card.appendChild(body);
 
       root.appendChild(card);
@@ -2397,6 +2458,23 @@
       empty.textContent = 'No entries.';
       root.appendChild(empty);
     }
+
+    // Click handler on goto links — scroll to the entry (or anchor)
+    // card. Uses event delegation so it survives re-renders without
+    // having to track individual listeners.
+    root.addEventListener('click', (ev) => {
+      const link = ev.target.closest('.v3-goto-link');
+      if (!link || !root.contains(link)) return;
+      const tgt = link.dataset.target;
+      if (!tgt) return;
+      const dest = root.querySelector('#v3-entry-' + CSS.escape(tgt))
+                || root.querySelector('#v3-anchor-' + CSS.escape(tgt));
+      if (dest) {
+        dest.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        dest.classList.add('v3-flash');
+        setTimeout(() => dest.classList.remove('v3-flash'), 600);
+      }
+    });
     return root;
   }
 
