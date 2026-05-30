@@ -1278,6 +1278,152 @@
     arr.splice(idx, 1);
   }
 
+  // ── Inline step editor (slice 4b) ─────────────────────────────
+  // Returns a <div class="v3-step-form"> containing input rows for
+  // every editable field of `step` plus Apply / Cancel buttons.
+  // onDone(cancel?) is called when the user is done — cancel=true
+  // means "discard, don't commit". The caller decides what to do
+  // (typically: re-render + markDirty when !cancel).
+  function buildV3StepEditor(step, actions, onDone) {
+    const form = document.createElement('div');
+    form.className = 'v3-step-form';
+    // Stop click bubbling so a click inside the form doesn't fold
+    // it back through the parent step's toggle handler.
+    form.addEventListener('click', (ev) => ev.stopPropagation());
+
+    function addRow(label, key, kind, value, opts) {
+      const row = document.createElement('div');
+      row.className = 'v3-step-field';
+      const lbl = document.createElement('label');
+      lbl.textContent = label;
+      row.appendChild(lbl);
+      let input;
+      if (kind === 'select') {
+        input = document.createElement('select');
+        (opts && opts.options || []).forEach(v => {
+          const o = document.createElement('option');
+          o.value = v;
+          o.textContent = v;
+          if (v === value) o.selected = true;
+          input.appendChild(o);
+        });
+      } else {
+        input = document.createElement('input');
+        input.type = kind === 'number' ? 'number' : 'text';
+        if (opts && opts.placeholder) input.placeholder = opts.placeholder;
+        input.value = value == null ? '' : String(value);
+      }
+      input.dataset.field = key;
+      row.appendChild(input);
+      form.appendChild(row);
+      return input;
+    }
+
+    const optionalKeys = new Set();
+
+    const t = step && step.type;
+    if (t === 'call') {
+      addRow('action',   'action',   'text',
+        step.action, { placeholder: 'fetch / store / …' });
+      addRow('mode',     'mode',     'select',
+        step.mode || 'one', { options: ['one', 'all'] });
+      optionalKeys.add('mode');
+      addRow('on_error', 'on_error', 'select',
+        step.on_error || 'log',
+        { options: ['log', 'fail', 'drop'] });
+      optionalKeys.add('on_error');
+    } else if (t === 'set') {
+      addRow('key',   'key',   'text', step.key,
+        { placeholder: 'state.X' });
+      addRow('value', 'value', 'text', step.value,
+        { placeholder: 'CEL-lite expression' });
+    } else if (t === 'goto') {
+      addRow('target', 'target', 'text', step.target,
+        { placeholder: 'entry-name or anchor-name' });
+      addRow('bind',   'bind',   'text', step.bind || '',
+        { placeholder: 'state.X (optional)' });
+      optionalKeys.add('bind');
+    } else if (t === 'anchor') {
+      addRow('name', 'name', 'text', step.name,
+        { placeholder: 'anchor-name' });
+    } else if (t === 'for') {
+      addRow('var', 'var', 'text', step.var,
+        { placeholder: 'item' });
+      addRow('in',  'in',  'text', step.in,
+        { placeholder: 'state.items' });
+    } else if (t === 'while') {
+      addRow('cond',    'cond',    'text', step.cond,
+        { placeholder: 'CEL-lite boolean' });
+      addRow('maxIter', 'maxIter', 'number', step.maxIter || 0);
+    } else if (t === 'if' && Array.isArray(step.cases)) {
+      // Per-case editor : only when expressions for now. Editing
+      // case bodies (`do`) lands in a later slice.
+      step.cases.forEach((c, i) => {
+        if (c && c.else) {
+          const row = document.createElement('div');
+          row.className = 'v3-step-field v3-step-field-readonly';
+          row.textContent = 'case ' + i + ': else (no condition)';
+          form.appendChild(row);
+        } else {
+          addRow('case ' + i + ' when', 'cases.' + i + '.when',
+            'text', c && c.when,
+            { placeholder: 'CEL-lite boolean' });
+        }
+      });
+    } else {
+      const row = document.createElement('div');
+      row.className = 'v3-step-field v3-step-field-readonly';
+      row.textContent = 'No inline editor for type "' + (t || '?')
+                          + '" yet.';
+      form.appendChild(row);
+    }
+
+    const actionsRow = document.createElement('div');
+    actionsRow.className = 'v3-step-form-actions';
+    const apply = document.createElement('button');
+    apply.type = 'button';
+    apply.className = 'v3-step-apply';
+    apply.textContent = 'Apply';
+    apply.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      form.querySelectorAll('[data-field]').forEach(inp => {
+        const key = inp.dataset.field;
+        let val = inp.type === 'number'
+          ? Number(inp.value) : inp.value;
+        if (key.indexOf('.') >= 0) {
+          const parts = key.split('.');
+          let obj = step;
+          for (let i = 0; i < parts.length - 1; i++) {
+            const p = parts[i];
+            obj = isNaN(p) ? obj[p] : obj[Number(p)];
+            if (obj == null) return;
+          }
+          obj[parts[parts.length - 1]] = val;
+        } else if (optionalKeys.has(key)
+                   && (val === '' || val == null
+                       || (inp.type === 'number' && !val))) {
+          delete step[key];
+        } else {
+          step[key] = val;
+        }
+      });
+      onDone(false);
+    });
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'v3-step-cancel';
+    cancel.textContent = 'Cancel';
+    cancel.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      onDone(true);
+    });
+    actionsRow.appendChild(apply);
+    actionsRow.appendChild(cancel);
+    form.appendChild(actionsRow);
+
+    return form;
+  }
+
   function renderBlockDag() {
     nodeIndex.clear();
     $svg.innerHTML = '';
@@ -2944,6 +3090,10 @@
       const line = document.createElement('div');
       line.className = 'v3-step v3-step-' + t;
       line.style.paddingLeft = (depth * 18) + 'px';
+      // Stash the step object on the line so the post-build pass
+      // can wire an inline editor + click handler to every step
+      // (root or nested), not just the root group.
+      line._v3Step = step;
 
       if (t === 'call') {
         const a = step.action || '?';
@@ -2965,6 +3115,9 @@
           caseLine.textContent = (c && c.else)
                                    ? 'else:'
                                    : 'when ' + (c && c.when ? c.when : '?') + ':';
+          // Clicking a case header opens the SAME editor as the
+          // parent if — the editor exposes all cases' conditions.
+          caseLine._v3Step = step;
           out.push(caseLine);
           buildSteps(c && c.do, depth + 2, out);
         });
@@ -3093,6 +3246,40 @@
             render();
           });
           rootGroup.appendChild(del);
+          // Per-step inline editor — every line whose ._v3Step is
+          // set (so root AND nested steps) gets one. Multiple lines
+          // pointing at the same step (e.g. the if header + its
+          // case lines) share one editor placed right after the
+          // first line.
+          const editorsByStep = new Map();
+          subSteps.forEach(line => {
+            const step = line._v3Step;
+            if (!step) return;
+            let editor = editorsByStep.get(step);
+            if (!editor) {
+              editor = buildV3StepEditor(step, actions, (cancelled) => {
+                if (cancelled) {
+                  editor.hidden = true;
+                } else {
+                  markDirty();
+                  render();
+                }
+              });
+              editor.hidden = true;
+              editor.classList.add('v3-step-editor-inline');
+              editorsByStep.set(step, editor);
+              // Insert the editor right after this (the first) line
+              // for the step. line.parentNode === rootGroup by now.
+              line.after(editor);
+            }
+            line.classList.add('v3-step-clickable');
+            line.addEventListener('click', (ev) => {
+              if (ev.target.closest('.v3-step-form')) return;
+              if (ev.target.closest('.v3-goto-link')) return;
+              if (ev.target.closest('.v3-step-del')) return;
+              editor.hidden = !editor.hidden;
+            });
+          });
           body.appendChild(rootGroup);
         });
       }
