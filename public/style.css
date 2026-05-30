@@ -2076,6 +2076,74 @@ body[data-mode="edit"] #dag .b-atomic .node-badge { display: none; }
   border-color: #6bf;
   color: #9df;
 }
+.v3-step-root { cursor: pointer; }
+.v3-step-expanded { background: rgba(110, 180, 255, 0.06); }
+.v3-step-expanded > .v3-step { color: #9df; }
+
+.v3-step-form {
+  padding: 6px 8px;
+  margin: 2px 0 4px;
+  background: var(--bg-2);
+  border: 1px solid var(--line-mid);
+  border-radius: 4px;
+  cursor: default;
+}
+.v3-step-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 3px 0;
+  font: 11px var(--font-mono);
+}
+.v3-step-field label {
+  flex: 0 0 90px;
+  color: var(--fg-muted);
+  text-align: right;
+}
+.v3-step-field input,
+.v3-step-field select {
+  flex: 1;
+  background: var(--bg-0);
+  color: var(--fg-1);
+  border: 1px solid var(--line-mid);
+  border-radius: 3px;
+  padding: 3px 6px;
+  font: 11px var(--font-mono);
+}
+.v3-step-field input:focus,
+.v3-step-field select:focus {
+  outline: none;
+  border-color: #6bf;
+}
+.v3-step-field-readonly {
+  color: var(--fg-muted);
+  font-style: italic;
+  padding: 3px 0 3px 98px;
+}
+.v3-step-form-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+  padding-left: 98px;
+}
+.v3-step-apply,
+.v3-step-cancel {
+  font: 10px var(--font-mono);
+  padding: 3px 12px;
+  border-radius: 3px;
+  cursor: pointer;
+  border: 1px solid var(--line-mid);
+  background: var(--bg-1);
+  color: var(--fg-1);
+}
+.v3-step-apply {
+  background: var(--accent);
+  color: var(--bg-0);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+.v3-step-apply:hover  { background: #ffc928; border-color: #ffc928; }
+.v3-step-cancel:hover { background: var(--bg-2); color: #f88; }
 
 /* ── v3 flowchart loop clusters (compound containers) ─────────── */
 .v3-fc-cluster rect {
