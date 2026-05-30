@@ -1277,6 +1277,25 @@
     if (!arr || idx < 0 || idx >= arr.length) return;
     arr.splice(idx, 1);
   }
+  function moveV3RootStep(entry, idx, dir) {
+    const arr = getV3DoArr(entry);
+    if (!arr) return;
+    const j = idx + dir;
+    if (idx < 0 || idx >= arr.length || j < 0 || j >= arr.length) return;
+    const tmp = arr[idx]; arr[idx] = arr[j]; arr[j] = tmp;
+  }
+  function removeV3NestedStep(parentStep, key, idx) {
+    if (!parentStep || !key) return;
+    let arr = parentStep[key];
+    if (!Array.isArray(arr)) {
+      // Single-object `do:` — normalise to a 1-element array so
+      // splice works (and so future inserts share the same shape).
+      arr = (arr && typeof arr === 'object') ? [arr] : [];
+      parentStep[key] = arr;
+    }
+    if (typeof idx !== 'number' || idx < 0 || idx >= arr.length) return;
+    arr.splice(idx, 1);
+  }
 
   // ── Inline step editor (slice 4b) ─────────────────────────────
   // Returns a <div class="v3-step-form"> containing input rows for
@@ -3082,9 +3101,16 @@
 
     // Render a step into a chain of <div class="v3-step"> lines. Gotos
     // become clickable spans that scroll to the target's card/anchor.
-    function buildSteps(step, depth, out) {
+    function buildSteps(step, depth, out, parentStep, parentKey, parentIdx) {
       if (!step) return;
-      if (Array.isArray(step)) { step.forEach(s => buildSteps(s, depth, out)); return; }
+      if (Array.isArray(step)) {
+        // Plural `do:` form — each element is a sibling under the
+        // same parent step. Propagate parentStep/parentKey so the
+        // post-build pass can delete by reaching back through them.
+        step.forEach((s, i) => buildSteps(s, depth, out,
+                                          parentStep, parentKey, i));
+        return;
+      }
       if (typeof step !== 'object') return;
       const t = step.type || '?';
       const line = document.createElement('div');
@@ -3094,6 +3120,14 @@
       // can wire an inline editor + click handler to every step
       // (root or nested), not just the root group.
       line._v3Step = step;
+      // Stash a reference back to the parent step + key so the
+      // post-build pass can wire a nested delete (root steps and
+      // case header lines pass no parent).
+      if (parentStep && parentKey) {
+        line._v3ParentStep = parentStep;
+        line._v3ParentKey = parentKey;
+        line._v3Idx = (typeof parentIdx === 'number') ? parentIdx : 0;
+      }
 
       if (t === 'call') {
         const a = step.action || '?';
@@ -3119,20 +3153,23 @@
           // parent if — the editor exposes all cases' conditions.
           caseLine._v3Step = step;
           out.push(caseLine);
-          buildSteps(c && c.do, depth + 2, out);
+          // Child steps belong to `c.do` — pass (c, 'do') so the
+          // post-build pass can splice into c.do (normalising the
+          // single-object → array form on demand).
+          buildSteps(c && c.do, depth + 2, out, c, 'do');
         });
         return;
       } else if (t === 'for') {
         line.textContent = 'for ' + (step.var || '?') + ' in ' + (step.in || '?');
         out.push(line);
-        buildSteps(step.do, depth + 1, out);
+        buildSteps(step.do, depth + 1, out, step, 'do');
         return;
       } else if (t === 'while') {
         let txt = 'while ' + (step.cond || '?');
         if (step.maxIter) txt += ' (maxIter=' + step.maxIter + ')';
         line.textContent = txt;
         out.push(line);
-        buildSteps(step.do, depth + 1, out);
+        buildSteps(step.do, depth + 1, out, step, 'do');
         return;
       } else if (t === 'goto') {
         line.appendChild(document.createTextNode('goto '));
@@ -3234,6 +3271,34 @@
           const subSteps = [];
           buildSteps(rootStep, 0, subSteps);
           subSteps.forEach(s => rootGroup.appendChild(s));
+          const actionsBar = document.createElement('div');
+          actionsBar.className = 'v3-step-actions';
+          const up = document.createElement('button');
+          up.type = 'button';
+          up.className = 'v3-step-move';
+          up.textContent = '↑';
+          up.title = 'Move up';
+          up.disabled = (idx === 0);
+          up.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            moveV3RootStep(e, idx, -1);
+            markDirty();
+            render();
+          });
+          actionsBar.appendChild(up);
+          const down = document.createElement('button');
+          down.type = 'button';
+          down.className = 'v3-step-move';
+          down.textContent = '↓';
+          down.title = 'Move down';
+          down.disabled = (idx === doArr.length - 1);
+          down.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            moveV3RootStep(e, idx, +1);
+            markDirty();
+            render();
+          });
+          actionsBar.appendChild(down);
           const del = document.createElement('button');
           del.type = 'button';
           del.className = 'v3-step-del';
@@ -3245,7 +3310,8 @@
             markDirty();
             render();
           });
-          rootGroup.appendChild(del);
+          actionsBar.appendChild(del);
+          rootGroup.appendChild(actionsBar);
           // Per-step inline editor — every line whose ._v3Step is
           // set (so root AND nested steps) gets one. Multiple lines
           // pointing at the same step (e.g. the if header + its
@@ -3279,6 +3345,29 @@
               if (ev.target.closest('.v3-step-del')) return;
               editor.hidden = !editor.hidden;
             });
+            // Nested delete: lines that came in through a parent
+            // container (for.do / while.do / case.do) get a ✕ on
+            // hover. Case header lines don't qualify — their _v3Step
+            // is the if itself; deleting a case is an if-editor job.
+            if (line._v3ParentStep && line._v3ParentKey
+                && !line.classList.contains('v3-step-case')) {
+              const pStep = line._v3ParentStep;
+              const pKey = line._v3ParentKey;
+              const childIdx = line._v3Idx;
+              const ndel = document.createElement('button');
+              ndel.type = 'button';
+              ndel.className = 'v3-step-del v3-step-del-nested';
+              ndel.textContent = '✕';
+              ndel.title = 'Delete this nested step';
+              ndel.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                removeV3NestedStep(pStep, pKey, childIdx);
+                markDirty();
+                render();
+              });
+              line.appendChild(ndel);
+              line.classList.add('v3-step-has-del');
+            }
           });
           body.appendChild(rootGroup);
         });
