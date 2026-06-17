@@ -3,6 +3,7 @@
 /*.c
 /_routes.am
 /.amalgame-cache/
+/build/
 
 # Runtime data
 /certs/
